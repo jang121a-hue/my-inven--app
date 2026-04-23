@@ -1,10 +1,10 @@
 {
-  "name": "재고 관리 앱",
-  "short_name": "재고앱",
-  "description": "PC와 휴대폰에서 함께 쓰는 재고 관리 앱",
+  "name": "고마워랑 원가 계산",
+  "short_name": "원가률",
+  "description": "환율, 배송비, 수수료, 광고비를 반영한 합배송 원가 계산 앱",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#f1f5f9",
+  "background_color": "#f8fafc",
   "theme_color": "#0f172a",
   "icons": [
     {

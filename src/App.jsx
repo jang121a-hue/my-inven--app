@@ -1,1042 +1,1074 @@
 import React, { useEffect, useMemo, useState } from "react";
+import * as XLSX from "xlsx";
 import {
-  Search,
+  Calculator,
+  Coins,
+  Download,
+  Package,
   Plus,
-  Trash2,
-  ExternalLink,
-  Edit3,
-  X,
-  ArrowDownToLine,
-  ArrowUpFromLine,
+  RefreshCw,
   Save,
+  Search,
+  Trash2,
+  Edit3,
   RotateCcw,
   ChevronDown,
-  ChevronRight,
-  AlertTriangle,
-  ChevronsUpDown,
+  ChevronUp,
+  Archive,
+  Tag,
+  CheckCircle2,
+  Image as ImageIcon,
 } from "lucide-react";
-import { supabase } from "./lib/supabase";
 
-const posterSizes = ["3040", "4060", "5070", "6080"];
-const canvasSquareSizes = ["4040", "6060", "7070"];
-const canvasRectSizes = ["3040", "4060", "5070"];
-const aluminumSizes = ["3040", "4060", "5070", "6080", "4040", "6060"];
-const aluminumColors = [
-  "무광 검정",
-  "화이트",
-  "실버",
-  "티타늄골드",
-  "다크오크",
-  "화이트오크",
-  "다크멀바우",
-];
+const STORAGE_KEY = "cost-calculator-records-v1";
 
-function makeStockMap(sizes, initial = 0) {
-  return Object.fromEntries(sizes.map((s) => [s, initial]));
+function uid() {
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-function makeDateMap(sizes) {
-  return Object.fromEntries(sizes.map((s) => [s, ""]));
-}
-
-function makeMovementMap(sizes) {
-  return Object.fromEntries(sizes.map((s) => [s, { inQty: 0, inDate: "", outQty: 0, outDate: "" }]));
-}
-
-function makeHistoryMap(sizes) {
-  return Object.fromEntries(sizes.map((s) => [s, []]));
-}
-
-const emptyPoster = () => ({
-  id: crypto.randomUUID(),
-  category: "poster",
-  seo: "",
-  name: "",
-  site: "",
-  stockBySize: makeStockMap(posterSizes),
-  alertBySize: makeStockMap(posterSizes),
-  lastInDateBySize: makeDateMap(posterSizes),
-  lastOutDateBySize: makeDateMap(posterSizes),
-  movementDraftBySize: makeMovementMap(posterSizes),
-  historyBySize: makeHistoryMap(posterSizes),
-  updatedAt: new Date().toISOString(),
-});
-
-const emptyCanvas = () => ({
-  id: crypto.randomUUID(),
-  category: "canvas",
-  seo: "",
-  name: "",
-  site: "",
-  squareStock: makeStockMap(canvasSquareSizes),
-  squareAlert: makeStockMap(canvasSquareSizes),
-  squareLastInDate: makeDateMap(canvasSquareSizes),
-  squareLastOutDate: makeDateMap(canvasSquareSizes),
-  squareMovementDraft: makeMovementMap(canvasSquareSizes),
-  squareHistory: makeHistoryMap(canvasSquareSizes),
-  rectStock: makeStockMap(canvasRectSizes),
-  rectAlert: makeStockMap(canvasRectSizes),
-  rectLastInDate: makeDateMap(canvasRectSizes),
-  rectLastOutDate: makeDateMap(canvasRectSizes),
-  rectMovementDraft: makeMovementMap(canvasRectSizes),
-  rectHistory: makeHistoryMap(canvasRectSizes),
-  updatedAt: new Date().toISOString(),
-});
-
-const emptyAluminum = () => ({
-  id: crypto.randomUUID(),
-  category: "aluminum",
-  color: aluminumColors[0],
-  stockBySize: makeStockMap(aluminumSizes),
-  alertBySize: makeStockMap(aluminumSizes),
-  lastInDateBySize: makeDateMap(aluminumSizes),
-  lastOutDateBySize: makeDateMap(aluminumSizes),
-  movementDraftBySize: makeMovementMap(aluminumSizes),
-  historyBySize: makeHistoryMap(aluminumSizes),
-  updatedAt: new Date().toISOString(),
-});
-
-const demoData = {
-  poster: [
-    {
-      ...emptyPoster(),
-      seo: "북유럽 감성 포스터",
-      name: "라인드로잉 플라워",
-      site: "https://example.com/poster-1",
-      stockBySize: { "3040": 12, "4060": 7, "5070": 4, "6080": 2 },
-      alertBySize: { "3040": 5, "4060": 3, "5070": 2, "6080": 3 },
-      lastInDateBySize: { "3040": "2026-04-18", "4060": "2026-04-17", "5070": "2026-04-10", "6080": "2026-04-05" },
-      lastOutDateBySize: { "3040": "2026-04-21", "4060": "2026-04-19", "5070": "2026-04-20", "6080": "2026-04-12" },
-      historyBySize: {
-        "3040": [{ id: crypto.randomUUID(), type: "출고", qty: 2, date: "2026-04-21", stockAfter: 12 }],
-        "4060": [],
-        "5070": [],
-        "6080": [{ id: crypto.randomUUID(), type: "출고", qty: 1, date: "2026-04-12", stockAfter: 2 }],
-      },
-    },
-  ],
-  canvas: [
-    {
-      ...emptyCanvas(),
-      seo: "모던 캔버스액자",
-      name: "선셋 오렌지",
-      site: "https://example.com/canvas-1",
-      squareStock: { "4040": 5, "6060": 3, "7070": 1 },
-      squareAlert: { "4040": 2, "6060": 2, "7070": 1 },
-      squareLastInDate: { "4040": "2026-04-18", "6060": "2026-04-15", "7070": "2026-04-01" },
-      squareLastOutDate: { "4040": "2026-04-20", "6060": "2026-04-19", "7070": "2026-04-08" },
-      rectStock: { "3040": 8, "4060": 6, "5070": 2 },
-      rectAlert: { "3040": 4, "4060": 3, "5070": 2 },
-      rectLastInDate: { "3040": "2026-04-16", "4060": "2026-04-14", "5070": "2026-04-03" },
-      rectLastOutDate: { "3040": "2026-04-21", "4060": "2026-04-20", "5070": "2026-04-09" },
-    },
-  ],
-  aluminum: [
-    {
-      ...emptyAluminum(),
-      color: "무광 검정",
-      stockBySize: { "3040": 20, "4060": 15, "5070": 8, "6080": 4, "4040": 6, "6060": 3 },
-      alertBySize: { "3040": 5, "4060": 4, "5070": 3, "6080": 4, "4040": 2, "6060": 3 },
-      lastInDateBySize: { "3040": "2026-04-18", "4060": "2026-04-18", "5070": "2026-04-10", "6080": "2026-04-05", "4040": "2026-04-12", "6060": "2026-04-07" },
-      lastOutDateBySize: { "3040": "2026-04-20", "4060": "2026-04-19", "5070": "2026-04-20", "6080": "2026-04-16", "4040": "2026-04-14", "6060": "2026-04-11" },
-    },
-  ],
-};
-
-function formatDate(value) {
-  if (!value) return "-";
-  if (typeof value === "string" && value.length === 10 && value.includes("-")) return value;
-  try {
-    return new Date(value).toLocaleString("ko-KR");
-  } catch {
-    return "-";
-  }
-}
-
-function safeNumber(value) {
+function toNumber(value) {
   const n = Number(value);
-  return Number.isFinite(n) && n >= 0 ? n : 0;
+  return Number.isFinite(n) ? n : 0;
 }
 
-function hydrateData(raw) {
-  const base = raw || demoData;
+function formatNumber(value) {
+  return new Intl.NumberFormat("ko-KR", {
+    maximumFractionDigits: 0,
+  }).format(Math.round(toNumber(value)));
+}
+
+function formatPercent(value) {
+  return `${toNumber(value).toFixed(2)}%`;
+}
+
+function downloadFile(filename, content, mimeType) {
+  const blob = new Blob([content], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+function makeEmptyProduct(index = 1) {
   return {
-    poster: (base.poster || []).map((item) => ({
-      ...emptyPoster(),
-      ...item,
-      stockBySize: { ...makeStockMap(posterSizes), ...(item.stockBySize || {}) },
-      alertBySize: { ...makeStockMap(posterSizes), ...(item.alertBySize || {}) },
-      lastInDateBySize: { ...makeDateMap(posterSizes), ...(item.lastInDateBySize || {}) },
-      lastOutDateBySize: { ...makeDateMap(posterSizes), ...(item.lastOutDateBySize || {}) },
-      movementDraftBySize: { ...makeMovementMap(posterSizes), ...(item.movementDraftBySize || {}) },
-      historyBySize: { ...makeHistoryMap(posterSizes), ...(item.historyBySize || {}) },
-    })),
-    canvas: (base.canvas || []).map((item) => ({
-      ...emptyCanvas(),
-      ...item,
-      squareStock: { ...makeStockMap(canvasSquareSizes), ...(item.squareStock || {}) },
-      squareAlert: { ...makeStockMap(canvasSquareSizes), ...(item.squareAlert || {}) },
-      squareLastInDate: { ...makeDateMap(canvasSquareSizes), ...(item.squareLastInDate || {}) },
-      squareLastOutDate: { ...makeDateMap(canvasSquareSizes), ...(item.squareLastOutDate || {}) },
-      squareMovementDraft: { ...makeMovementMap(canvasSquareSizes), ...(item.squareMovementDraft || {}) },
-      squareHistory: { ...makeHistoryMap(canvasSquareSizes), ...(item.squareHistory || {}) },
-      rectStock: { ...makeStockMap(canvasRectSizes), ...(item.rectStock || {}) },
-      rectAlert: { ...makeStockMap(canvasRectSizes), ...(item.rectAlert || {}) },
-      rectLastInDate: { ...makeDateMap(canvasRectSizes), ...(item.rectLastInDate || {}) },
-      rectLastOutDate: { ...makeDateMap(canvasRectSizes), ...(item.rectLastOutDate || {}) },
-      rectMovementDraft: { ...makeMovementMap(canvasRectSizes), ...(item.rectMovementDraft || {}) },
-      rectHistory: { ...makeHistoryMap(canvasRectSizes), ...(item.rectHistory || {}) },
-    })),
-    aluminum: (base.aluminum || []).map((item) => ({
-      ...emptyAluminum(),
-      ...item,
-      stockBySize: { ...makeStockMap(aluminumSizes), ...(item.stockBySize || {}) },
-      alertBySize: { ...makeStockMap(aluminumSizes), ...(item.alertBySize || {}) },
-      lastInDateBySize: { ...makeDateMap(aluminumSizes), ...(item.lastInDateBySize || {}) },
-      lastOutDateBySize: { ...makeDateMap(aluminumSizes), ...(item.lastOutDateBySize || {}) },
-      movementDraftBySize: { ...makeMovementMap(aluminumSizes), ...(item.movementDraftBySize || {}) },
-      historyBySize: { ...makeHistoryMap(aluminumSizes), ...(item.historyBySize || {}) },
-    })),
+    id: uid(),
+    name: `상품 ${index}`,
+    sku: "",
+    imageUrl: "",
+    qty: "1",
+    buyUsd: "0",
+    buyCny: "0",
+    salePrice: "0",
+    salesStatus: "미판매",
+    restockStatus: "보통",
   };
 }
 
-function getDisplayName(tab, item) {
-  return tab === "aluminum" ? `알루미늄 액자 - ${item.color || "색상 없음"}` : item.name || "이름 없음";
+function makeSampleProducts() {
+  return [
+    {
+      id: uid(),
+      name: "포스터 A",
+      sku: "POSTER-A-50X70",
+      imageUrl: "",
+      qty: "2",
+      buyUsd: "0",
+      buyCny: "13",
+      salePrice: "29900",
+      salesStatus: "판매중",
+      restockStatus: "보통",
+    },
+    {
+      id: uid(),
+      name: "포스터 B",
+      sku: "POSTER-B-60X80",
+      imageUrl: "",
+      qty: "2",
+      buyUsd: "0",
+      buyCny: "18",
+      salePrice: "34900",
+      salesStatus: "미판매",
+      restockStatus: "재주문 필요",
+    },
+  ];
 }
 
-function getCompactRows(tab, item) {
-  if (tab === "poster") {
-    return posterSizes.map((size) => ({
-      key: size,
-      label: size,
-      qty: safeNumber(item.stockBySize?.[size]),
-      alertQty: safeNumber(item.alertBySize?.[size]),
-      history: item.historyBySize?.[size] || [],
-      lastIn: item.lastInDateBySize?.[size] || "",
-      lastOut: item.lastOutDateBySize?.[size] || "",
-    }));
-  }
-  if (tab === "canvas") {
-    return [
-      ...canvasSquareSizes.map((size) => ({
-        key: `square-${size}`,
-        label: `정 ${size}`,
-        qty: safeNumber(item.squareStock?.[size]),
-        alertQty: safeNumber(item.squareAlert?.[size]),
-        history: item.squareHistory?.[size] || [],
-        lastIn: item.squareLastInDate?.[size] || "",
-        lastOut: item.squareLastOutDate?.[size] || "",
-      })),
-      ...canvasRectSizes.map((size) => ({
-        key: `rect-${size}`,
-        label: `직 ${size}`,
-        qty: safeNumber(item.rectStock?.[size]),
-        alertQty: safeNumber(item.rectAlert?.[size]),
-        history: item.rectHistory?.[size] || [],
-        lastIn: item.rectLastInDate?.[size] || "",
-        lastOut: item.rectLastOutDate?.[size] || "",
-      })),
-    ];
-  }
-  return aluminumSizes.map((size) => ({
-    key: size,
-    label: size,
-    qty: safeNumber(item.stockBySize?.[size]),
-    alertQty: safeNumber(item.alertBySize?.[size]),
-    history: item.historyBySize?.[size] || [],
-    lastIn: item.lastInDateBySize?.[size] || "",
-    lastOut: item.lastOutDateBySize?.[size] || "",
-  }));
-}
+function calculateRows(products, shared) {
+  const usdRate = toNumber(shared.usdRate);
+  const cnyRate = toNumber(shared.cnyRate);
+  const overseasShipping = toNumber(shared.overseasShipping);
+  const domesticShipping = toNumber(shared.domesticShipping);
+  const packagingCost = toNumber(shared.packagingCost);
+  const adCostFixed = toNumber(shared.adCostFixed);
+  const smartStoreFeeRate = toNumber(shared.smartStoreFeeRate) / 100;
+  const adCostRate = toNumber(shared.adCostRate) / 100;
+  const simpleVatRate = toNumber(shared.simpleVatRate) / 100;
 
-function normalizeDbItem(row) {
-  const base = {
-    id: row.id,
-    category: row.category,
-    name: row.name || "",
-    color: row.color || "",
-    seo: row.seo || "",
-    site: row.site || "",
-    updatedAt: row.updated_at || new Date().toISOString(),
-  };
+  const baseRows = products.map((item) => {
+    const qty = Math.max(1, toNumber(item.qty));
+    const buyUsd = toNumber(item.buyUsd);
+    const buyCny = toNumber(item.buyCny);
+    const salePrice = toNumber(item.salePrice);
 
-  if (row.category === "poster") {
+    const unitBuyCostKrw = buyUsd * usdRate + buyCny * cnyRate;
+    const totalBuyCostKrw = unitBuyCostKrw * qty;
+
     return {
-      ...emptyPoster(),
-      ...base,
-      stockBySize: row.stock_data || makeStockMap(posterSizes),
-      alertBySize: row.alert_data || makeStockMap(posterSizes),
-      lastInDateBySize: row.last_in_data || makeDateMap(posterSizes),
-      lastOutDateBySize: row.last_out_data || makeDateMap(posterSizes),
-      historyBySize: row.history_data || makeHistoryMap(posterSizes),
-      movementDraftBySize: makeMovementMap(posterSizes),
+      ...item,
+      qty,
+      buyUsd,
+      buyCny,
+      salePrice,
+      unitBuyCostKrw,
+      totalBuyCostKrw,
     };
-  }
-
-  if (row.category === "canvas") {
-    return {
-      ...emptyCanvas(),
-      ...base,
-      squareStock: row.stock_data?.squareStock || makeStockMap(canvasSquareSizes),
-      rectStock: row.stock_data?.rectStock || makeStockMap(canvasRectSizes),
-      squareAlert: row.alert_data?.squareAlert || makeStockMap(canvasSquareSizes),
-      rectAlert: row.alert_data?.rectAlert || makeStockMap(canvasRectSizes),
-      squareLastInDate: row.last_in_data?.squareLastInDate || makeDateMap(canvasSquareSizes),
-      rectLastInDate: row.last_in_data?.rectLastInDate || makeDateMap(canvasRectSizes),
-      squareLastOutDate: row.last_out_data?.squareLastOutDate || makeDateMap(canvasSquareSizes),
-      rectLastOutDate: row.last_out_data?.rectLastOutDate || makeDateMap(canvasRectSizes),
-      squareHistory: row.history_data?.squareHistory || makeHistoryMap(canvasSquareSizes),
-      rectHistory: row.history_data?.rectHistory || makeHistoryMap(canvasRectSizes),
-      squareMovementDraft: makeMovementMap(canvasSquareSizes),
-      rectMovementDraft: makeMovementMap(canvasRectSizes),
-    };
-  }
-
-  return {
-    ...emptyAluminum(),
-    ...base,
-    stockBySize: row.stock_data || makeStockMap(aluminumSizes),
-    alertBySize: row.alert_data || makeStockMap(aluminumSizes),
-    lastInDateBySize: row.last_in_data || makeDateMap(aluminumSizes),
-    lastOutDateBySize: row.last_out_data || makeDateMap(aluminumSizes),
-    historyBySize: row.history_data || makeHistoryMap(aluminumSizes),
-    movementDraftBySize: makeMovementMap(aluminumSizes),
-  };
-}
-
-function buildPayload(tab, item) {
-  const payload = {
-    category: tab,
-    name: tab === "aluminum" ? null : item.name || null,
-    color: tab === "aluminum" ? item.color || null : null,
-    seo: tab !== "aluminum" ? item.seo || null : null,
-    site: tab !== "aluminum" ? item.site || null : null,
-  };
-
-  if (tab === "poster") {
-    payload.stock_data = item.stockBySize;
-    payload.alert_data = item.alertBySize;
-    payload.last_in_data = item.lastInDateBySize;
-    payload.last_out_data = item.lastOutDateBySize;
-    payload.history_data = item.historyBySize;
-  }
-
-  if (tab === "canvas") {
-    payload.stock_data = {
-      squareStock: item.squareStock,
-      rectStock: item.rectStock,
-    };
-    payload.alert_data = {
-      squareAlert: item.squareAlert,
-      rectAlert: item.rectAlert,
-    };
-    payload.last_in_data = {
-      squareLastInDate: item.squareLastInDate,
-      rectLastInDate: item.rectLastInDate,
-    };
-    payload.last_out_data = {
-      squareLastOutDate: item.squareLastOutDate,
-      rectLastOutDate: item.rectLastOutDate,
-    };
-    payload.history_data = {
-      squareHistory: item.squareHistory,
-      rectHistory: item.rectHistory,
-    };
-  }
-
-  if (tab === "aluminum") {
-    payload.stock_data = item.stockBySize;
-    payload.alert_data = item.alertBySize;
-    payload.last_in_data = item.lastInDateBySize;
-    payload.last_out_data = item.lastOutDateBySize;
-    payload.history_data = item.historyBySize;
-  }
-
-  return payload;
-}
-
-async function fetchInventoryData() {
-  const { data: rows, error } = await supabase
-    .from("inventory_items")
-    .select("*")
-    .order("created_at", { ascending: false });
-
-  if (error) throw error;
-
-  const grouped = { poster: [], canvas: [], aluminum: [] };
-  (rows || []).forEach((row) => {
-    const item = normalizeDbItem(row);
-    grouped[row.category].push(item);
   });
 
-  return hydrateData(grouped);
-}
+  const totalQty = baseRows.reduce((sum, row) => sum + row.qty, 0);
+  const totalBuyCost = baseRows.reduce((sum, row) => sum + row.totalBuyCostKrw, 0);
 
-function App() {
-  const [tab, setTab] = useState("poster");
-  const [query, setQuery] = useState("");
-  const [data, setData] = useState(hydrateData({ poster: [], canvas: [], aluminum: [] }));
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [editingId, setEditingId] = useState(null);
-  const [form, setForm] = useState(emptyPoster());
-  const [expandedIds, setExpandedIds] = useState({});
-  const [showLowStockOnly, setShowLowStockOnly] = useState(false);
-  const [showAllLowStock, setShowAllLowStock] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [errorMessage, setErrorMessage] = useState("");
+  const domesticPerUnit = totalQty > 0 ? domesticShipping / totalQty : 0;
+  const packagingPerUnit = totalQty > 0 ? packagingCost / totalQty : 0;
+  const fixedAdPerUnit = totalQty > 0 ? adCostFixed / totalQty : 0;
 
-  useEffect(() => {
-    let active = true;
+  const rows = baseRows.map((row) => {
+    const buyRatio = totalBuyCost > 0 ? row.totalBuyCostKrw / totalBuyCost : 0;
+    const overseasAllocatedTotal = overseasShipping * buyRatio;
+    const overseasAllocatedPerUnit = row.qty > 0 ? overseasAllocatedTotal / row.qty : 0;
 
-    async function load() {
-      try {
-        setLoading(true);
-        setErrorMessage("");
-        const next = await fetchInventoryData();
-        if (active) setData(next);
-      } catch (error) {
-        console.error(error);
-        if (active) setErrorMessage("Supabase 데이터를 불러오지 못했습니다.");
-      } finally {
-        if (active) setLoading(false);
-      }
-    }
+    const smartStoreFeePerUnit = row.salePrice * smartStoreFeeRate;
+    const adCostPerUnit = row.salePrice * adCostRate;
+    const simpleVatPerUnit = row.salePrice * simpleVatRate * 0.1;
 
-    load();
+    const totalCostPerUnit =
+      row.unitBuyCostKrw +
+      overseasAllocatedPerUnit +
+      domesticPerUnit +
+      packagingPerUnit +
+      fixedAdPerUnit +
+      smartStoreFeePerUnit +
+      adCostPerUnit +
+      simpleVatPerUnit;
 
-    return () => {
-      active = false;
+    const totalCostAll = totalCostPerUnit * row.qty;
+    const revenueAll = row.salePrice * row.qty;
+    const profitPerUnit = row.salePrice - totalCostPerUnit;
+    const profitAll = revenueAll - totalCostAll;
+    const marginRate = row.salePrice > 0 ? (profitPerUnit / row.salePrice) * 100 : 0;
+    const costRate = row.salePrice > 0 ? (totalCostPerUnit / row.salePrice) * 100 : 0;
+
+    const target30 = totalCostPerUnit / 0.7;
+    const target40 = totalCostPerUnit / 0.6;
+
+    return {
+      ...row,
+      buyRatio,
+      overseasAllocatedTotal,
+      overseasAllocatedPerUnit,
+      domesticPerUnit,
+      packagingPerUnit,
+      fixedAdPerUnit,
+      smartStoreFeePerUnit,
+      adCostPerUnit,
+      simpleVatPerUnit,
+      totalCostPerUnit,
+      totalCostAll,
+      revenueAll,
+      profitPerUnit,
+      profitAll,
+      marginRate,
+      costRate,
+      target30,
+      target40,
     };
-  }, []);
+  });
 
-  const counts = useMemo(
-    () => ({
-      poster: data.poster?.length || 0,
-      canvas: data.canvas?.length || 0,
-      aluminum: data.aluminum?.length || 0,
-    }),
-    [data]
-  );
+  const summary = {
+    totalQty,
+    totalBuyCost,
+    totalRevenue: rows.reduce((sum, row) => sum + row.revenueAll, 0),
+    totalCost: rows.reduce((sum, row) => sum + row.totalCostAll, 0),
+    totalProfit: rows.reduce((sum, row) => sum + row.profitAll, 0),
+  };
 
-  const lowStockItems = useMemo(() => {
-    const result = [];
-    const sources = [
-      ["poster", data.poster || []],
-      ["canvas", data.canvas || []],
-      ["aluminum", data.aluminum || []],
-    ];
-    sources.forEach(([category, items]) => {
-      items.forEach((item) => {
-        getCompactRows(category, item).forEach((row) => {
-          if (row.alertQty > 0 && row.qty <= row.alertQty) {
-            result.push({
-              id: `${category}-${item.id}-${row.key}`,
-              category,
-              itemId: item.id,
-              title: getDisplayName(category, item),
-              sizeLabel: row.label,
-              qty: row.qty,
-              alertQty: row.alertQty,
-            });
-          }
-        });
-      });
+  summary.costRate =
+    summary.totalRevenue > 0 ? (summary.totalCost / summary.totalRevenue) * 100 : 0;
+  summary.marginRate =
+    summary.totalRevenue > 0 ? (summary.totalProfit / summary.totalRevenue) * 100 : 0;
+
+  return { rows, summary };
+}
+
+function exportToCsv(records) {
+  const headers = [
+    "묶음명",
+    "매입일",
+    "저장일",
+    "상품명",
+    "SKU",
+    "판매상태",
+    "재주문상태",
+    "수량",
+    "판매가",
+    "개당매입원가",
+    "개당총원가",
+    "총매출",
+    "총원가",
+    "개당순이익",
+    "총순이익",
+    "원가율",
+    "마진율",
+    "이미지URL",
+  ];
+
+  const lines = [headers.join(",")];
+
+  records.forEach((record) => {
+    record.items.forEach((item) => {
+      lines.push(
+        [
+          record.bundleName,
+          record.purchaseDate,
+          record.savedAt,
+          item.name,
+          item.sku || "",
+          item.salesStatus || "미판매",
+          item.restockStatus || "보통",
+          item.qty,
+          item.salePrice,
+          Math.round(item.unitBuyCostKrw),
+          Math.round(item.totalCostPerUnit),
+          Math.round(item.revenueAll),
+          Math.round(item.totalCostAll),
+          Math.round(item.profitPerUnit),
+          Math.round(item.profitAll),
+          item.costRate.toFixed(2),
+          item.marginRate.toFixed(2),
+          item.imageUrl || "",
+        ]
+          .map((v) => `"${String(v).replace(/"/g, '""')}"`)
+          .join(",")
+      );
     });
-    return result;
-  }, [data]);
+  });
 
-  const filteredItems = useMemo(() => {
-    const keyword = query.trim().toLowerCase();
-    let items = data[tab] || [];
-    if (keyword && tab !== "aluminum") {
-      items = items.filter((item) => [item.name].filter(Boolean).some((v) => String(v).toLowerCase().includes(keyword)));
-    }
-    if (!showLowStockOnly) return items;
-    return items.filter((item) => getCompactRows(tab, item).some((row) => row.alertQty > 0 && row.qty <= row.alertQty));
-  }, [data, query, tab, showLowStockOnly]);
-
-  function toggleExpanded(id) {
-    setExpandedIds((prev) => ({ ...prev, [id]: !prev[id] }));
-  }
-
-  function openLowStockTarget(entry) {
-    setTab(entry.category);
-    setExpandedIds((prev) => ({ ...prev, [entry.itemId]: true }));
-    const el = document.getElementById(`item-row-${entry.itemId}`);
-    if (el) {
-      el.scrollIntoView({ behavior: "smooth", block: "center" });
-    } else {
-      setTimeout(() => {
-        const retryEl = document.getElementById(`item-row-${entry.itemId}`);
-        if (retryEl) retryEl.scrollIntoView({ behavior: "smooth", block: "center" });
-      }, 80);
-    }
-  }
-
-  function openCreateModal() {
-    setEditingId(null);
-    if (tab === "poster") setForm(emptyPoster());
-    if (tab === "canvas") setForm(emptyCanvas());
-    if (tab === "aluminum") setForm(emptyAluminum());
-    setIsModalOpen(true);
-  }
-
-  function openEditModal(item) {
-    setEditingId(item.id);
-    setForm(structuredClone(item));
-    setIsModalOpen(true);
-  }
-
-  function closeModal() {
-    setIsModalOpen(false);
-    setEditingId(null);
-  }
-
-  function updateNested(group, size, value) {
-    setForm((prev) => ({
-      ...prev,
-      [group]: {
-        ...prev[group],
-        [size]: safeNumber(value),
-      },
-    }));
-  }
-
-  function updateMovement(group, size, field, value) {
-    setForm((prev) => ({
-      ...prev,
-      [group]: {
-        ...prev[group],
-        [size]: {
-          ...prev[group][size],
-          [field]: field.includes("Qty") ? safeNumber(value) : value,
-        },
-      },
-    }));
-  }
-
-  function applyMovement(stockGroup, inDateGroup, outDateGroup, movementGroup, historyGroup, size, mode) {
-    setForm((prev) => {
-      const movement = prev[movementGroup]?.[size] || { inQty: 0, inDate: "", outQty: 0, outDate: "" };
-      const currentStock = safeNumber(prev[stockGroup]?.[size]);
-      const currentHistory = prev[historyGroup]?.[size] || [];
-      if (mode === "in") {
-        const qty = safeNumber(movement.inQty);
-        if (!qty) return prev;
-        const date = movement.inDate || prev[inDateGroup]?.[size] || "";
-        const nextStock = currentStock + qty;
-        return {
-          ...prev,
-          [stockGroup]: { ...prev[stockGroup], [size]: nextStock },
-          [inDateGroup]: { ...prev[inDateGroup], [size]: date },
-          [historyGroup]: {
-            ...prev[historyGroup],
-            [size]: [{ id: crypto.randomUUID(), type: "입고", qty, date, stockAfter: nextStock }, ...currentHistory],
-          },
-          [movementGroup]: { ...prev[movementGroup], [size]: { ...movement, inQty: 0, inDate: "" } },
-        };
-      }
-      const qty = safeNumber(movement.outQty);
-      if (!qty) return prev;
-      const date = movement.outDate || prev[outDateGroup]?.[size] || "";
-      const nextStock = Math.max(0, currentStock - qty);
-      return {
-        ...prev,
-        [stockGroup]: { ...prev[stockGroup], [size]: nextStock },
-        [outDateGroup]: { ...prev[outDateGroup], [size]: date },
-        [historyGroup]: {
-          ...prev[historyGroup],
-          [size]: [{ id: crypto.randomUUID(), type: "출고", qty, date, stockAfter: nextStock }, ...currentHistory],
-        },
-        [movementGroup]: { ...prev[movementGroup], [size]: { ...movement, outQty: 0, outDate: "" } },
-      };
-    });
-  }
-
-  async function saveItem() {
-    try {
-      setSaving(true);
-      setErrorMessage("");
-      const updated = { ...form, updatedAt: new Date().toISOString() };
-      const payload = buildPayload(tab, updated);
-
-      if (editingId) {
-        const { error } = await supabase.from("inventory_items").update(payload).eq("id", editingId);
-        if (error) throw error;
-        setData((prev) => {
-          const list = prev[tab] || [];
-          const nextList = list.map((item) => (item.id === editingId ? updated : item));
-          return { ...prev, [tab]: nextList };
-        });
-      } else {
-        const { data: inserted, error } = await supabase.from("inventory_items").insert(payload).select().single();
-        if (error) throw error;
-        const normalized = normalizeDbItem(inserted);
-        setData((prev) => ({ ...prev, [tab]: [normalized, ...(prev[tab] || [])] }));
-      }
-
-      closeModal();
-    } catch (error) {
-      console.error(error);
-      setErrorMessage("저장 중 오류가 발생했습니다.");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function deleteItem(id) {
-    const ok = window.confirm("이 항목을 삭제할까요?");
-    if (!ok) return;
-
-    try {
-      setErrorMessage("");
-      const { error } = await supabase.from("inventory_items").delete().eq("id", id);
-      if (error) throw error;
-      setData((prev) => ({ ...prev, [tab]: (prev[tab] || []).filter((item) => item.id !== id) }));
-    } catch (error) {
-      console.error(error);
-      setErrorMessage("삭제 중 오류가 발생했습니다.");
-    }
-  }
-
-  async function resetDemo() {
-    const ok = window.confirm("데모 데이터로 초기화할까요? 기존 데이터는 모두 지워집니다.");
-    if (!ok) return;
-
-    try {
-      setLoading(true);
-      setErrorMessage("");
-      const { error: deleteError } = await supabase.from("inventory_items").delete().neq("category", "");
-      if (deleteError) throw deleteError;
-
-      const demoRows = [
-        ...demoData.poster.map((item) => buildPayload("poster", item)),
-        ...demoData.canvas.map((item) => buildPayload("canvas", item)),
-        ...demoData.aluminum.map((item) => buildPayload("aluminum", item)),
-      ];
-
-      if (demoRows.length > 0) {
-        const { error: insertError } = await supabase.from("inventory_items").insert(demoRows);
-        if (insertError) throw insertError;
-      }
-
-      const next = await fetchInventoryData();
-      setData(next);
-      setExpandedIds({});
-    } catch (error) {
-      console.error(error);
-      setErrorMessage("데모 초기화 중 오류가 발생했습니다.");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  function exportJson() {
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "inventory-data.json";
-    a.click();
-    URL.revokeObjectURL(url);
-  }
-
-  return (
-    <div className="min-h-screen bg-slate-100 text-slate-900">
-      <div className="mx-auto max-w-7xl p-4 sm:p-6">
-        <header className="mb-6 rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <div>
-              <h1 className="text-2xl font-bold tracking-tight">재고 관리 앱</h1>
-              <p className="mt-2 text-sm text-slate-600">
-                목록은 한 줄 요약으로 보고, 클릭하면 상세가 열리도록 바꾼 버전입니다. 사이즈별 재고 알림 기준과 부족 품목 모아보기를 지원합니다.
-              </p>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <button onClick={openCreateModal} className="inline-flex items-center gap-2 rounded-2xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white">
-                <Plus size={18} /> 항목 추가
-              </button>
-              <button onClick={exportJson} className="inline-flex items-center gap-2 rounded-2xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium">
-                <Save size={18} /> JSON 저장
-              </button>
-              <button onClick={resetDemo} className="inline-flex items-center gap-2 rounded-2xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium">
-                <RotateCcw size={18} /> 데모 초기화
-              </button>
-            </div>
-          </div>
-          {loading && <div className="mt-3 text-sm text-slate-500">데이터 불러오는 중...</div>}
-          {errorMessage && <div className="mt-3 text-sm text-red-600">{errorMessage}</div>}
-        </header>
-
-        <section className="mb-4 rounded-3xl border border-amber-200 bg-amber-50 p-4 shadow-sm">
-          <button
-            onClick={() => setShowAllLowStock((v) => !v)}
-            className="flex w-full items-center justify-between gap-3 text-left"
-          >
-            <div className="flex items-center gap-2 text-sm font-semibold text-amber-800">
-              <AlertTriangle size={18} /> 전체 재고 부족 상품 / 사이즈 ({lowStockItems.length})
-            </div>
-            <div className="inline-flex items-center gap-1 rounded-2xl bg-white px-3 py-1.5 text-xs font-medium text-amber-800 ring-1 ring-amber-200">
-              <ChevronsUpDown size={14} /> {showAllLowStock ? "접기" : "전체 보기"}
-            </div>
-          </button>
-          {!showAllLowStock ? (
-            <div className="mt-3 text-sm text-amber-700">
-              {lowStockItems.length === 0 ? "현재 재고 부족 항목이 없습니다." : "클릭해서 전체 부족 항목을 펼쳐보세요."}
-            </div>
-          ) : lowStockItems.length === 0 ? (
-            <div className="mt-3 text-sm text-amber-700">현재 재고 부족 항목이 없습니다.</div>
-          ) : (
-            <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">
-              {lowStockItems.map((entry) => (
-                <button
-                  key={entry.id}
-                  onClick={() => openLowStockTarget(entry)}
-                  className="rounded-2xl border border-amber-200 bg-white px-3 py-2 text-left text-sm hover:bg-amber-50"
-                >
-                  <div className="font-medium text-slate-800">{entry.title}</div>
-                  <div className="mt-1 text-slate-600">사이즈: {entry.sizeLabel}</div>
-                  <div className="text-red-600">현재 {entry.qty} / 알림기준 {entry.alertQty}</div>
-                </button>
-              ))}
-            </div>
-          )}
-        </section>
-
-        <section className="mb-4 flex flex-col gap-3 rounded-3xl bg-white p-4 shadow-sm ring-1 ring-slate-200 lg:flex-row lg:items-center lg:justify-between">
-          <div className="flex flex-wrap gap-2">
-            <TabButton active={tab === "poster"} onClick={() => setTab("poster")}>아트포스터 재고 ({counts.poster})</TabButton>
-            <TabButton active={tab === "canvas"} onClick={() => setTab("canvas")}>캔버스액자 재고 ({counts.canvas})</TabButton>
-            <TabButton active={tab === "aluminum"} onClick={() => setTab("aluminum")}>알루미늄 액자 재고 ({counts.aluminum})</TabButton>
-            <button
-              onClick={() => setShowLowStockOnly((v) => !v)}
-              className={`rounded-2xl px-4 py-2.5 text-sm font-medium ${showLowStockOnly ? "bg-red-600 text-white" : "bg-slate-100 text-slate-700"}`}
-            >
-              부족 항목만 보기
-            </button>
-          </div>
-          {tab !== "aluminum" ? (
-            <div className="relative w-full lg:max-w-sm">
-              <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-              <input
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="품명으로 검색"
-                className="w-full rounded-2xl border border-slate-300 bg-slate-50 py-2.5 pl-10 pr-4 outline-none transition focus:border-slate-500"
-              />
-            </div>
-          ) : (
-            <div className="w-full lg:max-w-sm rounded-2xl bg-slate-50 px-4 py-2.5 text-sm text-slate-500 ring-1 ring-slate-200">
-              알루미늄 액자는 검색 기능을 사용하지 않습니다.
-            </div>
-          )}
-        </section>
-
-        <section className="space-y-3">
-          {filteredItems.length === 0 ? (
-            <div className="rounded-3xl bg-white p-8 text-center text-slate-500 shadow-sm ring-1 ring-slate-200">검색 결과가 없습니다.</div>
-          ) : (
-            filteredItems.map((item) => {
-              const rows = getCompactRows(tab, item);
-              const expanded = !!expandedIds[item.id];
-              const lowCount = rows.filter((row) => row.alertQty > 0 && row.qty <= row.alertQty).length;
-              return (
-                <div id={`item-row-${item.id}`} key={item.id} className="overflow-hidden rounded-3xl bg-white shadow-sm ring-1 ring-slate-200">
-                  <button
-                    onClick={() => toggleExpanded(item.id)}
-                    className="flex w-full flex-col gap-3 p-4 text-left hover:bg-slate-50 md:flex-row md:items-center md:justify-between"
-                  >
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        {expanded ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
-                        <div className="truncate text-base font-semibold text-slate-900">{getDisplayName(tab, item)}</div>
-                        {lowCount > 0 && <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-600">부족 {lowCount}</span>}
-                      </div>
-                      {tab !== "aluminum" && <div className="mt-1 pl-7 text-sm text-slate-500">SEO: {item.seo || "-"}</div>}
-                    </div>
-                    <div className="flex flex-wrap gap-2 md:justify-end">
-                      {rows.filter((row) => row.alertQty > 0 && row.qty <= row.alertQty).map((row) => (
-                        <div key={`low-${row.key}`} className="rounded-xl bg-red-50 px-3 py-1.5 text-sm text-red-600 ring-1 ring-red-200">
-                          {row.label} {row.qty}
-                        </div>
-                      ))}
-                      {rows.filter((row) => !(row.alertQty > 0 && row.qty <= row.alertQty)).map((row) => (
-                        <div key={`normal-${row.key}`} className="rounded-xl bg-slate-100 px-3 py-1.5 text-sm text-slate-700">
-                          {row.label} {row.qty}
-                        </div>
-                      ))}
-                    </div>
-                  </button>
-
-                  {expanded && (
-                    <div className="border-t border-slate-100 p-4">
-                      <div className="mb-4 flex flex-wrap gap-2">
-                        {tab !== "aluminum" && item.site && (
-                          <a href={item.site} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 rounded-2xl border border-slate-300 px-3 py-2 text-sm font-medium text-blue-600">
-                            <ExternalLink size={15} /> 관련 사이트 열기
-                          </a>
-                        )}
-                        <button onClick={() => openEditModal(item)} className="inline-flex items-center gap-2 rounded-2xl border border-slate-300 px-3 py-2 text-sm font-medium">
-                          <Edit3 size={16} /> 수정
-                        </button>
-                        <button onClick={() => deleteItem(item.id)} className="inline-flex items-center gap-2 rounded-2xl border border-red-200 px-3 py-2 text-sm font-medium text-red-600">
-                          <Trash2 size={16} /> 삭제
-                        </button>
-                      </div>
-
-                      {tab === "poster" && <DetailSection title="포스터 상세" rows={rows} />}
-                      {tab === "canvas" && (
-                        <div className="space-y-4">
-                          <DetailSection title="정사각형 형태" rows={rows.filter((r) => r.key.startsWith("square-"))} />
-                          <DetailSection title="직사각형 형태" rows={rows.filter((r) => r.key.startsWith("rect-"))} />
-                        </div>
-                      )}
-                      {tab === "aluminum" && <DetailSection title={`색상: ${item.color || "-"}`} rows={rows} />}
-
-                      <div className="mt-4 border-t border-slate-100 pt-3 text-xs text-slate-400">마지막 수정: {formatDate(item.updatedAt)}</div>
-                    </div>
-                  )}
-                </div>
-              );
-            })
-          )}
-        </section>
-      </div>
-
-      {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-0 sm:items-center sm:p-4">
-          <div className="max-h-[92vh] w-full overflow-y-auto rounded-t-3xl bg-white p-5 shadow-2xl sm:max-w-5xl sm:rounded-3xl">
-            <div className="mb-4 flex items-center justify-between">
-              <h3 className="text-xl font-bold">{editingId ? "항목 수정" : "항목 추가"}</h3>
-              <button onClick={closeModal} className="rounded-full p-2 text-slate-500 hover:bg-slate-100"><X size={20} /></button>
-            </div>
-
-            {tab === "poster" && (
-              <div className="space-y-4">
-                <Field label="SEO"><input value={form.seo || ""} onChange={(e) => setForm({ ...form, seo: e.target.value })} className={inputClass} /></Field>
-                <Field label="품명"><input value={form.name || ""} onChange={(e) => setForm({ ...form, name: e.target.value })} className={inputClass} /></Field>
-                <Field label="관련 사이트"><input value={form.site || ""} onChange={(e) => setForm({ ...form, site: e.target.value })} className={inputClass} placeholder="https://..." /></Field>
-                <SizeEditor
-                  title="포스터 사이즈별 관리"
-                  sizes={posterSizes}
-                  values={form.stockBySize}
-                  alertValues={form.alertBySize}
-                  inDateValues={form.lastInDateBySize}
-                  outDateValues={form.lastOutDateBySize}
-                  movementValues={form.movementDraftBySize}
-                  onChange={(size, value) => updateNested("stockBySize", size, value)}
-                  onAlertChange={(size, value) => updateNested("alertBySize", size, value)}
-                  onMovementChange={(size, field, value) => updateMovement("movementDraftBySize", size, field, value)}
-                  onApplyIn={(size) => applyMovement("stockBySize", "lastInDateBySize", "lastOutDateBySize", "movementDraftBySize", "historyBySize", size, "in")}
-                  onApplyOut={(size) => applyMovement("stockBySize", "lastInDateBySize", "lastOutDateBySize", "movementDraftBySize", "historyBySize", size, "out")}
-                />
-              </div>
-            )}
-
-            {tab === "canvas" && (
-              <div className="space-y-4">
-                <Field label="SEO"><input value={form.seo || ""} onChange={(e) => setForm({ ...form, seo: e.target.value })} className={inputClass} /></Field>
-                <Field label="품명"><input value={form.name || ""} onChange={(e) => setForm({ ...form, name: e.target.value })} className={inputClass} /></Field>
-                <Field label="관련 사이트"><input value={form.site || ""} onChange={(e) => setForm({ ...form, site: e.target.value })} className={inputClass} placeholder="https://..." /></Field>
-                <SizeEditor
-                  title="정사각형 형태 관리"
-                  sizes={canvasSquareSizes}
-                  values={form.squareStock}
-                  alertValues={form.squareAlert}
-                  inDateValues={form.squareLastInDate}
-                  outDateValues={form.squareLastOutDate}
-                  movementValues={form.squareMovementDraft}
-                  onChange={(size, value) => updateNested("squareStock", size, value)}
-                  onAlertChange={(size, value) => updateNested("squareAlert", size, value)}
-                  onMovementChange={(size, field, value) => updateMovement("squareMovementDraft", size, field, value)}
-                  onApplyIn={(size) => applyMovement("squareStock", "squareLastInDate", "squareLastOutDate", "squareMovementDraft", "squareHistory", size, "in")}
-                  onApplyOut={(size) => applyMovement("squareStock", "squareLastInDate", "squareLastOutDate", "squareMovementDraft", "squareHistory", size, "out")}
-                />
-                <SizeEditor
-                  title="직사각형 형태 관리"
-                  sizes={canvasRectSizes}
-                  values={form.rectStock}
-                  alertValues={form.rectAlert}
-                  inDateValues={form.rectLastInDate}
-                  outDateValues={form.rectLastOutDate}
-                  movementValues={form.rectMovementDraft}
-                  onChange={(size, value) => updateNested("rectStock", size, value)}
-                  onAlertChange={(size, value) => updateNested("rectAlert", size, value)}
-                  onMovementChange={(size, field, value) => updateMovement("rectMovementDraft", size, field, value)}
-                  onApplyIn={(size) => applyMovement("rectStock", "rectLastInDate", "rectLastOutDate", "rectMovementDraft", "rectHistory", size, "in")}
-                  onApplyOut={(size) => applyMovement("rectStock", "rectLastInDate", "rectLastOutDate", "rectMovementDraft", "rectHistory", size, "out")}
-                />
-              </div>
-            )}
-
-            {tab === "aluminum" && (
-              <div className="space-y-4">
-                <Field label="색상">
-                  <select value={form.color || aluminumColors[0]} onChange={(e) => setForm({ ...form, color: e.target.value })} className={inputClass}>
-                    {aluminumColors.map((color) => <option key={color} value={color}>{color}</option>)}
-                  </select>
-                </Field>
-                <SizeEditor
-                  title="알루미늄 액자 사이즈별 관리"
-                  sizes={aluminumSizes}
-                  values={form.stockBySize}
-                  alertValues={form.alertBySize}
-                  inDateValues={form.lastInDateBySize}
-                  outDateValues={form.lastOutDateBySize}
-                  movementValues={form.movementDraftBySize}
-                  onChange={(size, value) => updateNested("stockBySize", size, value)}
-                  onAlertChange={(size, value) => updateNested("alertBySize", size, value)}
-                  onMovementChange={(size, field, value) => updateMovement("movementDraftBySize", size, field, value)}
-                  onApplyIn={(size) => applyMovement("stockBySize", "lastInDateBySize", "lastOutDateBySize", "movementDraftBySize", "historyBySize", size, "in")}
-                  onApplyOut={(size) => applyMovement("stockBySize", "lastInDateBySize", "lastOutDateBySize", "movementDraftBySize", "historyBySize", size, "out")}
-                />
-              </div>
-            )}
-
-            <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-              <button onClick={closeModal} className="rounded-2xl border border-slate-300 px-4 py-2.5 text-sm font-medium">취소</button>
-              <button onClick={saveItem} disabled={saving} className="rounded-2xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white disabled:opacity-60">
-                {saving ? "저장 중..." : "저장"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
+  downloadFile(
+    `원가계산기록_${new Date().toISOString().slice(0, 10)}.csv`,
+    lines.join("\n"),
+    "text/csv;charset=utf-8;"
   );
 }
 
-function DetailSection({ title, rows }) {
-  return (
-    <div>
-      <div className="mb-2 text-sm font-semibold text-slate-800">{title}</div>
-      <div className="space-y-3">
-        {rows.map((row) => {
-          const isLow = row.alertQty > 0 && row.qty <= row.alertQty;
-          return (
-            <div key={row.key} className={`rounded-2xl border p-3 ${isLow ? "border-red-200 bg-red-50" : "border-slate-200 bg-slate-50"}`}>
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="font-medium text-slate-800">{row.label}</div>
-                {isLow && <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-600">재고 부족</span>}
-              </div>
-              <div className="mt-2 grid grid-cols-2 gap-2 text-sm md:grid-cols-4">
-                <InfoBox label="현재 재고" value={row.qty} />
-                <InfoBox label="알림 기준" value={row.alertQty} />
-                <InfoBox label="최근 입고일" value={formatDate(row.lastIn)} />
-                <InfoBox label="최근 출고일" value={formatDate(row.lastOut)} />
-              </div>
-              <div className="mt-3 rounded-2xl bg-white p-3 ring-1 ring-slate-200">
-                <div className="mb-2 text-xs font-semibold text-slate-700">입출고 기록</div>
-                {row.history.length === 0 ? (
-                  <div className="text-xs text-slate-400">기록 없음</div>
-                ) : (
-                  <div className="max-h-40 space-y-2 overflow-y-auto pr-1">
-                    {row.history.map((entry) => (
-                      <div key={entry.id} className="rounded-xl bg-slate-50 px-2 py-2 text-xs text-slate-600">
-                        <div className="font-medium text-slate-700">{entry.type} {entry.qty}개</div>
-                        <div>날짜: {formatDate(entry.date)}</div>
-                        <div>반영 후 재고: {entry.stockAfter}</div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
+function exportToXlsx(records) {
+  const workbook = XLSX.utils.book_new();
+
+  const summaryRows = records.map((record) => ({
+    묶음명: record.bundleName,
+    매입일: record.purchaseDate,
+    저장일: record.savedAt,
+    상품종수: record.items.length,
+    총수량: record.summary.totalQty,
+    전체매출: Math.round(record.summary.totalRevenue),
+    전체원가: Math.round(record.summary.totalCost),
+    전체순이익: Math.round(record.summary.totalProfit),
+    전체원가율: Number(record.summary.costRate.toFixed(2)),
+    전체마진율: Number(record.summary.marginRate.toFixed(2)),
+  }));
+
+  const detailRows = records.flatMap((record) =>
+    record.items.map((item) => ({
+      묶음명: record.bundleName,
+      매입일: record.purchaseDate,
+      저장일: record.savedAt,
+      상품명: item.name,
+      SKU: item.sku || "",
+      판매상태: item.salesStatus || "미판매",
+      재주문상태: item.restockStatus || "보통",
+      수량: item.qty,
+      판매가: Math.round(item.salePrice),
+      개당매입원가: Math.round(item.unitBuyCostKrw),
+      개당총원가: Math.round(item.totalCostPerUnit),
+      총매출: Math.round(item.revenueAll),
+      총원가: Math.round(item.totalCostAll),
+      개당순이익: Math.round(item.profitPerUnit),
+      총순이익: Math.round(item.profitAll),
+      원가율: Number(item.costRate.toFixed(2)),
+      마진율: Number(item.marginRate.toFixed(2)),
+      이미지URL: item.imageUrl || "",
+    }))
+  );
+
+  const ws1 = XLSX.utils.json_to_sheet(summaryRows);
+  const ws2 = XLSX.utils.json_to_sheet(detailRows);
+
+  XLSX.utils.book_append_sheet(workbook, ws1, "요약");
+  XLSX.utils.book_append_sheet(workbook, ws2, "상품상세");
+
+  XLSX.writeFile(
+    workbook,
+    `원가계산기록_${new Date().toISOString().slice(0, 10)}.xlsx`
   );
 }
 
-function InfoBox({ label, value }) {
-  return (
-    <div className="rounded-xl bg-white px-3 py-2 ring-1 ring-slate-200">
-      <div className="text-xs text-slate-500">{label}</div>
-      <div className="mt-1 font-medium text-slate-800">{value}</div>
-    </div>
-  );
-}
-
-function TabButton({ active, children, onClick }) {
-  return (
-    <button
-      onClick={onClick}
-      className={`rounded-2xl px-4 py-2.5 text-sm font-medium transition ${active ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-700 hover:bg-slate-200"}`}
-    >
-      {children}
-    </button>
-  );
-}
-
-function Field({ label, children }) {
+function InputField({
+  label,
+  value,
+  onChange,
+  suffix,
+  placeholder,
+  type = "text",
+}) {
   return (
     <label className="block">
       <div className="mb-2 text-sm font-medium text-slate-700">{label}</div>
-      {children}
+      <div className="flex items-center rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm transition focus-within:border-slate-400">
+        <input
+          type={type}
+          inputMode={type === "number" ? "decimal" : undefined}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder}
+          className="w-full bg-transparent text-base outline-none"
+        />
+        {suffix && <span className="ml-3 whitespace-nowrap text-sm text-slate-500">{suffix}</span>}
+      </div>
     </label>
   );
 }
 
-function SizeEditor({
-  title,
-  sizes,
-  values,
-  alertValues,
-  inDateValues,
-  outDateValues,
-  movementValues,
-  onChange,
-  onAlertChange,
-  onMovementChange,
-  onApplyIn,
-  onApplyOut,
-}) {
+function SelectField({ label, value, onChange, options }) {
   return (
-    <div>
-      <div className="mb-3 text-sm font-semibold text-slate-800">{title}</div>
-      <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
-        {sizes.map((size) => (
-          <div key={size} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-            <div className="mb-3 text-base font-semibold text-slate-700">사이즈 {size}</div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <div className="mb-1 text-xs text-slate-500">현재 재고</div>
-                <input type="number" min="0" value={values?.[size] ?? 0} onChange={(e) => onChange(size, e.target.value)} className={inputClass} />
-              </div>
-              <div>
-                <div className="mb-1 text-xs text-slate-500">재고 알림 기준</div>
-                <input type="number" min="0" value={alertValues?.[size] ?? 0} onChange={(e) => onAlertChange(size, e.target.value)} className={inputClass} />
-              </div>
-            </div>
-            <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
-              <div className="rounded-2xl bg-white p-3 ring-1 ring-slate-200">
-                <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-700"><ArrowDownToLine size={16} /> 입고 입력</div>
-                <div className="mb-2 text-xs text-slate-500">입고 수량</div>
-                <input type="number" min="0" value={movementValues?.[size]?.inQty ?? 0} onChange={(e) => onMovementChange(size, "inQty", e.target.value)} className={inputClass} />
-                <div className="mb-2 mt-3 text-xs text-slate-500">입고 날짜</div>
-                <input type="date" value={movementValues?.[size]?.inDate ?? ""} onChange={(e) => onMovementChange(size, "inDate", e.target.value)} className={inputClass} />
-                <button type="button" onClick={() => onApplyIn(size)} className="mt-3 w-full rounded-2xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white">입고 반영</button>
-                <div className="mt-2 text-xs text-slate-500">최근 입고일: {formatDate(inDateValues?.[size])}</div>
-              </div>
-              <div className="rounded-2xl bg-white p-3 ring-1 ring-slate-200">
-                <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-700"><ArrowUpFromLine size={16} /> 출고 입력</div>
-                <div className="mb-2 text-xs text-slate-500">출고 수량</div>
-                <input type="number" min="0" value={movementValues?.[size]?.outQty ?? 0} onChange={(e) => onMovementChange(size, "outQty", e.target.value)} className={inputClass} />
-                <div className="mb-2 mt-3 text-xs text-slate-500">출고 날짜</div>
-                <input type="date" value={movementValues?.[size]?.outDate ?? ""} onChange={(e) => onMovementChange(size, "outDate", e.target.value)} className={inputClass} />
-                <button type="button" onClick={() => onApplyOut(size)} className="mt-3 w-full rounded-2xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-900">출고 반영</button>
-                <div className="mt-2 text-xs text-slate-500">최근 출고일: {formatDate(outDateValues?.[size])}</div>
-              </div>
-            </div>
-          </div>
-        ))}
+    <label className="block">
+      <div className="mb-2 text-sm font-medium text-slate-700">{label}</div>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-base outline-none shadow-sm"
+      >
+        {options.map((option) => {
+          const val = typeof option === "string" ? option : option.value;
+          const text = typeof option === "string" ? option : option.label;
+          return (
+            <option key={val} value={val}>
+              {text}
+            </option>
+          );
+        })}
+      </select>
+    </label>
+  );
+}
+
+function SummaryCard({ title, value, sub, icon: Icon }) {
+  return (
+    <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="mb-3 flex items-center justify-between">
+        <div className="text-sm font-medium text-slate-500">{title}</div>
+        <Icon className="h-5 w-5 text-slate-400" />
       </div>
+      <div className="text-2xl font-bold tracking-tight text-slate-900">{value}</div>
+      {sub && <div className="mt-2 text-sm text-slate-500">{sub}</div>}
     </div>
   );
 }
 
-const inputClass = "w-full rounded-2xl border border-slate-300 bg-white px-4 py-2.5 outline-none transition focus:border-slate-500";
+export default function App() {
+  const today = new Date().toISOString().slice(0, 10);
 
-export default App;
+  const [bundleName, setBundleName] = useState("4월 포스터 합배송 1차");
+  const [purchaseDate, setPurchaseDate] = useState(today);
+  const [usdRate, setUsdRate] = useState("1380");
+  const [cnyRate, setCnyRate] = useState("190");
+  const [overseasShipping, setOverseasShipping] = useState("22000");
+  const [domesticShipping, setDomesticShipping] = useState("4000");
+  const [packagingCost, setPackagingCost] = useState("6000");
+  const [adCostFixed, setAdCostFixed] = useState("3000");
+  const [smartStoreFeeRate, setSmartStoreFeeRate] = useState("2");
+  const [adCostRate, setAdCostRate] = useState("3");
+  const [simpleVatRate, setSimpleVatRate] = useState("15");
+
+  const [products, setProducts] = useState(makeSampleProducts());
+  const [savedRecords, setSavedRecords] = useState([]);
+  const [editingRecordId, setEditingRecordId] = useState(null);
+  const [searchKeyword, setSearchKeyword] = useState("");
+  const [isFetchingRates, setIsFetchingRates] = useState(false);
+  const [rateMessage, setRateMessage] = useState("");
+  const [expandedIds, setExpandedIds] = useState({});
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        setSavedRecords(parsed);
+      }
+    } catch (error) {
+      console.error("저장 기록 불러오기 실패", error);
+    }
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(savedRecords));
+  }, [savedRecords]);
+
+  const sharedInput = useMemo(
+    () => ({
+      usdRate,
+      cnyRate,
+      overseasShipping,
+      domesticShipping,
+      packagingCost,
+      adCostFixed,
+      smartStoreFeeRate,
+      adCostRate,
+      simpleVatRate,
+    }),
+    [
+      usdRate,
+      cnyRate,
+      overseasShipping,
+      domesticShipping,
+      packagingCost,
+      adCostFixed,
+      smartStoreFeeRate,
+      adCostRate,
+      simpleVatRate,
+    ]
+  );
+
+  const result = useMemo(() => calculateRows(products, sharedInput), [products, sharedInput]);
+
+  const filteredRecords = useMemo(() => {
+    const keyword = searchKeyword.trim().toLowerCase();
+    if (!keyword) return savedRecords;
+
+    return savedRecords.filter((record) => {
+      const target = [
+        record.bundleName,
+        record.purchaseDate,
+        ...(record.items || []).flatMap((item) => [item.name, item.sku, item.imageUrl]),
+      ]
+        .join(" ")
+        .toLowerCase();
+
+      return target.includes(keyword);
+    });
+  }, [savedRecords, searchKeyword]);
+
+  const fetchRates = async () => {
+    try {
+      setIsFetchingRates(true);
+      setRateMessage("");
+
+      const [usdRes, cnyRes] = await Promise.all([
+        fetch("https://api.frankfurter.dev/v2/rate/USD/KRW"),
+        fetch("https://api.frankfurter.dev/v2/rate/CNY/KRW"),
+      ]);
+
+      if (!usdRes.ok || !cnyRes.ok) {
+        throw new Error("환율 정보를 불러오지 못했습니다.");
+      }
+
+      const usdData = await usdRes.json();
+      const cnyData = await cnyRes.json();
+
+      if (!usdData?.rate || !cnyData?.rate) {
+        throw new Error("환율 데이터 형식이 올바르지 않습니다.");
+      }
+
+      setUsdRate(String(Math.round(usdData.rate)));
+      setCnyRate(String(Math.round(cnyData.rate)));
+      setRateMessage(`환율 반영 완료 (${new Date().toLocaleString("ko-KR")})`);
+    } catch (error) {
+      setRateMessage(error.message || "환율 반영 실패");
+    } finally {
+      setIsFetchingRates(false);
+    }
+  };
+
+  const resetForm = () => {
+    setBundleName("4월 포스터 합배송 1차");
+    setPurchaseDate(today);
+    setUsdRate("1380");
+    setCnyRate("190");
+    setOverseasShipping("22000");
+    setDomesticShipping("4000");
+    setPackagingCost("6000");
+    setAdCostFixed("3000");
+    setSmartStoreFeeRate("2");
+    setAdCostRate("3");
+    setSimpleVatRate("15");
+    setProducts(makeSampleProducts());
+    setEditingRecordId(null);
+  };
+
+  const updateProduct = (id, key, value) => {
+    setProducts((prev) => prev.map((item) => (item.id === id ? { ...item, [key]: value } : item)));
+  };
+
+  const addProduct = () => {
+    setProducts((prev) => [...prev, makeEmptyProduct(prev.length + 1)]);
+  };
+
+  const removeProduct = (id) => {
+    setProducts((prev) => (prev.length <= 1 ? prev : prev.filter((item) => item.id !== id)));
+  };
+
+  const saveRecord = () => {
+    const payload = {
+      id: editingRecordId || uid(),
+      bundleName: bundleName.trim() || "이름 없는 묶음",
+      purchaseDate,
+      sharedInput,
+      items: result.rows,
+      summary: result.summary,
+      sourceProducts: products,
+      savedAt: new Date().toLocaleString("ko-KR"),
+    };
+
+    if (editingRecordId) {
+      setSavedRecords((prev) =>
+        prev.map((record) => (record.id === editingRecordId ? payload : record))
+      );
+    } else {
+      setSavedRecords((prev) => [payload, ...prev]);
+    }
+
+    setEditingRecordId(payload.id);
+    alert("저장되었습니다.");
+  };
+
+  const editRecord = (id) => {
+    const record = savedRecords.find((item) => item.id === id);
+    if (!record) return;
+
+    setEditingRecordId(record.id);
+    setBundleName(record.bundleName || "");
+    setPurchaseDate(record.purchaseDate || today);
+
+    setUsdRate(record.sharedInput.usdRate || "0");
+    setCnyRate(record.sharedInput.cnyRate || "0");
+    setOverseasShipping(record.sharedInput.overseasShipping || "0");
+    setDomesticShipping(record.sharedInput.domesticShipping || "0");
+    setPackagingCost(record.sharedInput.packagingCost || "0");
+    setAdCostFixed(record.sharedInput.adCostFixed || "0");
+    setSmartStoreFeeRate(record.sharedInput.smartStoreFeeRate || "0");
+    setAdCostRate(record.sharedInput.adCostRate || "0");
+    setSimpleVatRate(record.sharedInput.simpleVatRate || "15");
+
+    setProducts(
+      (record.sourceProducts || []).map((item) => ({
+        ...item,
+        id: item.id || uid(),
+      }))
+    );
+
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const deleteRecord = (id) => {
+    const ok = window.confirm("정말 삭제하시겠습니까?");
+    if (!ok) return;
+
+    setSavedRecords((prev) => prev.filter((record) => record.id !== id));
+
+    if (editingRecordId === id) {
+      resetForm();
+    }
+  };
+
+  const toggleExpand = (id) => {
+    setExpandedIds((prev) => ({
+      ...prev,
+      [id]: !prev[id],
+    }));
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-50 p-6 text-slate-900">
+      <div className="mx-auto max-w-7xl">
+        <div className="mb-8 flex flex-col gap-4 rounded-[28px] bg-gradient-to-r from-slate-900 to-slate-700 p-7 text-white shadow-xl lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <div className="mb-2 flex items-center gap-2 text-sm text-slate-200">
+              <Archive className="h-4 w-4" />
+              PWA 원가 계산 앱
+            </div>
+            <h1 className="text-3xl font-bold tracking-tight">합배송 원가 계산 앱</h1>
+            <p className="mt-2 text-sm text-slate-200 md:text-base">
+              환율, 국제배송비, 국내배송비, 포장비, 광고비, 스마트스토어 수수료를
+              반영해서 상품별 원가율과 마진율을 계산하고 저장할 수 있습니다.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap gap-3">
+            <button
+              onClick={fetchRates}
+              className="inline-flex items-center justify-center gap-2 rounded-2xl bg-emerald-500 px-4 py-3 text-sm font-medium text-white transition hover:bg-emerald-400"
+            >
+              <RefreshCw className={`h-4 w-4 ${isFetchingRates ? "animate-spin" : ""}`} />
+              {isFetchingRates ? "환율 불러오는 중" : "오늘 환율 반영"}
+            </button>
+            <button
+              onClick={() => exportToCsv(filteredRecords)}
+              className="inline-flex items-center justify-center gap-2 rounded-2xl bg-white/10 px-4 py-3 text-sm font-medium text-white backdrop-blur transition hover:bg-white/20"
+            >
+              <Download className="h-4 w-4" />
+              CSV
+            </button>
+            <button
+              onClick={() => exportToXlsx(filteredRecords)}
+              className="inline-flex items-center justify-center gap-2 rounded-2xl bg-white/10 px-4 py-3 text-sm font-medium text-white backdrop-blur transition hover:bg-white/20"
+            >
+              <Download className="h-4 w-4" />
+              XLSX
+            </button>
+            <button
+              onClick={resetForm}
+              className="inline-flex items-center justify-center gap-2 rounded-2xl bg-white/10 px-4 py-3 text-sm font-medium text-white backdrop-blur transition hover:bg-white/20"
+            >
+              <RotateCcw className="h-4 w-4" />
+              새 작업
+            </button>
+          </div>
+        </div>
+
+        {rateMessage ? (
+          <div className="mb-6 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600 shadow-sm">
+            {rateMessage}
+          </div>
+        ) : null}
+
+        <div className="mb-6 grid gap-4 md:grid-cols-3">
+          <SummaryCard
+            title="현재 전체 매출"
+            value={`${formatNumber(result.summary.totalRevenue)}원`}
+            sub={`총 수량 ${formatNumber(result.summary.totalQty)}개`}
+            icon={Coins}
+          />
+          <SummaryCard
+            title="현재 전체 원가"
+            value={`${formatNumber(result.summary.totalCost)}원`}
+            sub={`원가율 ${formatPercent(result.summary.costRate)}`}
+            icon={Calculator}
+          />
+          <SummaryCard
+            title="현재 전체 순이익"
+            value={`${formatNumber(result.summary.totalProfit)}원`}
+            sub={`마진율 ${formatPercent(result.summary.marginRate)}`}
+            icon={Package}
+          />
+        </div>
+
+        <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
+          <div className="space-y-6">
+            <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
+              <h2 className="mb-5 text-xl font-bold">기본 정보</h2>
+              <div className="grid gap-4 md:grid-cols-2">
+                <InputField
+                  label="묶음명"
+                  value={bundleName}
+                  onChange={setBundleName}
+                  placeholder="예: 4월 포스터 합배송 1차"
+                />
+                <InputField
+                  label="매입일"
+                  value={purchaseDate}
+                  onChange={setPurchaseDate}
+                  type="date"
+                />
+              </div>
+            </div>
+
+            <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
+              <h2 className="mb-5 text-xl font-bold">공통 비용 설정</h2>
+              <div className="grid gap-4 md:grid-cols-2">
+                <InputField label="달러 환율" value={usdRate} onChange={setUsdRate} suffix="원" />
+                <InputField label="위안 환율" value={cnyRate} onChange={setCnyRate} suffix="원" />
+                <InputField
+                  label="국제배송비"
+                  value={overseasShipping}
+                  onChange={setOverseasShipping}
+                  suffix="원"
+                />
+                <InputField
+                  label="국내배송비"
+                  value={domesticShipping}
+                  onChange={setDomesticShipping}
+                  suffix="원"
+                />
+                <InputField
+                  label="포장비"
+                  value={packagingCost}
+                  onChange={setPackagingCost}
+                  suffix="원"
+                />
+                <InputField
+                  label="정액 광고비"
+                  value={adCostFixed}
+                  onChange={setAdCostFixed}
+                  suffix="원"
+                />
+                <InputField
+                  label="스마트스토어 수수료율"
+                  value={smartStoreFeeRate}
+                  onChange={setSmartStoreFeeRate}
+                  suffix="%"
+                />
+                <InputField
+                  label="광고비율"
+                  value={adCostRate}
+                  onChange={setAdCostRate}
+                  suffix="%"
+                />
+                <InputField
+                  label="간이과세 부가가치율"
+                  value={simpleVatRate}
+                  onChange={setSimpleVatRate}
+                  suffix="%"
+                />
+              </div>
+
+              <div className="mt-4 rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-500">
+                국제배송비는 상품 매입금액 비율로 배분되고, 국내배송비·포장비·정액 광고비는
+                전체 수량 기준으로 균등 배분됩니다.
+              </div>
+            </div>
+
+            <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
+              <div className="mb-5 flex items-center justify-between gap-3">
+                <h2 className="text-xl font-bold">상품 목록</h2>
+                <button
+                  onClick={addProduct}
+                  className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+                >
+                  <Plus className="h-4 w-4" />
+                  상품 추가
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                {products.map((product, index) => (
+                  <div key={product.id} className="rounded-2xl border border-slate-200 p-4">
+                    <div className="mb-3 flex items-center justify-between">
+                      <div className="text-sm font-semibold text-slate-700">상품 {index + 1}</div>
+                      <button
+                        onClick={() => removeProduct(product.id)}
+                        className="inline-flex items-center gap-1 text-sm text-rose-500 transition hover:text-rose-600"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                        삭제
+                      </button>
+                    </div>
+
+                    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                      <InputField
+                        label="상품명"
+                        value={product.name}
+                        onChange={(value) => updateProduct(product.id, "name", value)}
+                        placeholder="상품명"
+                      />
+                      <InputField
+                        label="SKU"
+                        value={product.sku}
+                        onChange={(value) => updateProduct(product.id, "sku", value)}
+                        placeholder="예: POSTER-A-50X70"
+                      />
+                      <InputField
+                        label="이미지 URL"
+                        value={product.imageUrl}
+                        onChange={(value) => updateProduct(product.id, "imageUrl", value)}
+                        placeholder="https://..."
+                      />
+                      <InputField
+                        label="수량"
+                        value={product.qty}
+                        onChange={(value) => updateProduct(product.id, "qty", value)}
+                        suffix="개"
+                      />
+                      <InputField
+                        label="개당 매입가 (USD)"
+                        value={product.buyUsd}
+                        onChange={(value) => updateProduct(product.id, "buyUsd", value)}
+                        suffix="$"
+                      />
+                      <InputField
+                        label="개당 매입가 (CNY)"
+                        value={product.buyCny}
+                        onChange={(value) => updateProduct(product.id, "buyCny", value)}
+                        suffix="¥"
+                      />
+                      <InputField
+                        label="판매가"
+                        value={product.salePrice}
+                        onChange={(value) => updateProduct(product.id, "salePrice", value)}
+                        suffix="원"
+                      />
+                      <SelectField
+                        label="판매 상태"
+                        value={product.salesStatus}
+                        onChange={(value) => updateProduct(product.id, "salesStatus", value)}
+                        options={["미판매", "판매중", "판매완료"]}
+                      />
+                      <SelectField
+                        label="재주문 상태"
+                        value={product.restockStatus}
+                        onChange={(value) => updateProduct(product.id, "restockStatus", value)}
+                        options={["보통", "재주문 필요", "재주문 완료"]}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="mt-5 flex flex-wrap gap-3">
+                <button
+                  onClick={saveRecord}
+                  className="inline-flex items-center gap-2 rounded-2xl bg-slate-900 px-5 py-3 text-sm font-medium text-white transition hover:bg-slate-800"
+                >
+                  <Save className="h-4 w-4" />
+                  {editingRecordId ? "수정 저장" : "현재 묶음 저장"}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-6">
+            <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
+              <h2 className="mb-5 text-xl font-bold">현재 계산 결과</h2>
+
+              <div className="space-y-4">
+                {result.rows.map((row) => (
+                  <div key={row.id} className="rounded-2xl border border-slate-200 p-4">
+                    <div className="mb-3 flex items-start justify-between gap-3">
+                      <div className="flex items-start gap-3">
+                        {row.imageUrl ? (
+                          <img src={row.imageUrl} alt={row.name} className="h-12 w-12 rounded-xl object-cover" />
+                        ) : (
+                          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-slate-100 text-slate-400">
+                            <ImageIcon className="h-5 w-5" />
+                          </div>
+                        )}
+                        <div>
+                          <div className="font-semibold text-slate-900">{row.name}</div>
+                          <div className="mt-1 flex flex-wrap gap-2 text-xs text-slate-500">
+                            <span className="inline-flex items-center gap-1">
+                              <Tag className="h-3 w-3" />
+                              {row.sku || "SKU 없음"}
+                            </span>
+                            <span className="inline-flex items-center gap-1">
+                              <CheckCircle2 className="h-3 w-3" />
+                              {row.salesStatus || "미판매"}
+                            </span>
+                            <span>{row.restockStatus || "보통"}</span>
+                          </div>
+                        </div>
+                      </div>
+                      <div
+                        className={`rounded-2xl px-4 py-3 text-right text-lg font-bold ${
+                          row.profitPerUnit >= 0
+                            ? "bg-emerald-50 text-emerald-600"
+                            : "bg-rose-50 text-rose-600"
+                        }`}
+                      >
+                        {formatNumber(row.profitPerUnit)}원
+                        <div className="text-xs font-medium text-slate-500">개당 순이익</div>
+                      </div>
+                    </div>
+
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <div className="rounded-2xl bg-slate-50 p-4 text-sm">
+                        <div className="mb-2 font-semibold text-slate-700">개당 비용 요약</div>
+                        <div className="flex justify-between py-1">
+                          <span>개당 매입원가</span>
+                          <strong>{formatNumber(row.unitBuyCostKrw)}원</strong>
+                        </div>
+                        <div className="flex justify-between py-1">
+                          <span>개당 총원가</span>
+                          <strong>{formatNumber(row.totalCostPerUnit)}원</strong>
+                        </div>
+                        <div className="flex justify-between py-1">
+                          <span>원가율</span>
+                          <strong>{formatPercent(row.costRate)}</strong>
+                        </div>
+                        <div className="flex justify-between py-1">
+                          <span>마진율</span>
+                          <strong>{formatPercent(row.marginRate)}</strong>
+                        </div>
+                      </div>
+
+                      <div className="rounded-2xl bg-slate-50 p-4 text-sm">
+                        <div className="mb-2 font-semibold text-slate-700">목표 판매가</div>
+                        <div className="flex justify-between py-1">
+                          <span>30% 마진 목표</span>
+                          <strong>{formatNumber(row.target30)}원</strong>
+                        </div>
+                        <div className="flex justify-between py-1">
+                          <span>40% 마진 목표</span>
+                          <strong>{formatNumber(row.target40)}원</strong>
+                        </div>
+                        <div className="flex justify-between py-1">
+                          <span>총 순이익</span>
+                          <strong>{formatNumber(row.profitAll)}원</strong>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
+              <div className="mb-5 flex flex-col gap-3">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                  <h2 className="text-xl font-bold">저장된 기록</h2>
+
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      onClick={() => exportToCsv(filteredRecords)}
+                      className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 px-4 py-3 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+                    >
+                      <Download className="h-4 w-4" />
+                      CSV
+                    </button>
+                    <button
+                      onClick={() => exportToXlsx(filteredRecords)}
+                      className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 px-4 py-3 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+                    >
+                      <Download className="h-4 w-4" />
+                      XLSX
+                    </button>
+                  </div>
+                </div>
+
+                <div className="relative">
+                  <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                  <input
+                    type="text"
+                    value={searchKeyword}
+                    onChange={(e) => setSearchKeyword(e.target.value)}
+                    placeholder="묶음명, 날짜, 상품명, SKU, 이미지 URL 검색"
+                    className="w-full rounded-2xl border border-slate-200 bg-white py-3 pl-11 pr-4 text-sm outline-none shadow-sm"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                {filteredRecords.length === 0 ? (
+                  <div className="rounded-2xl border border-dashed border-slate-200 px-4 py-10 text-center text-sm text-slate-400">
+                    저장된 기록이 없습니다.
+                  </div>
+                ) : (
+                  filteredRecords.map((record) => {
+                    const expanded = !!expandedIds[record.id];
+
+                    return (
+                      <div key={record.id} className="rounded-2xl border border-slate-200 p-5">
+                        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                          <div>
+                            <div className="text-lg font-bold text-slate-900">{record.bundleName}</div>
+                            <div className="mt-2 text-sm text-slate-500">
+                              매입일 {record.purchaseDate} · 저장일 {record.savedAt}
+                            </div>
+                          </div>
+
+                          <div className="flex flex-wrap gap-2">
+                            <button
+                              onClick={() => toggleExpand(record.id)}
+                              className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+                            >
+                              {expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                              {expanded ? "접기" : "상세"}
+                            </button>
+                            <button
+                              onClick={() => editRecord(record.id)}
+                              className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+                            >
+                              <Edit3 className="h-4 w-4" />
+                              수정
+                            </button>
+                            <button
+                              onClick={() => deleteRecord(record.id)}
+                              className="inline-flex items-center gap-2 rounded-2xl border border-rose-200 px-4 py-2 text-sm font-medium text-rose-600 transition hover:bg-rose-50"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                              삭제
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="mt-4 grid gap-3 rounded-2xl bg-slate-50 p-4 text-sm md:grid-cols-4">
+                          <div>
+                            <div className="text-slate-500">총수량</div>
+                            <div className="mt-1 font-bold text-slate-900">
+                              {formatNumber(record.summary.totalQty)}개
+                            </div>
+                          </div>
+                          <div>
+                            <div className="text-slate-500">전체매출</div>
+                            <div className="mt-1 font-bold text-slate-900">
+                              {formatNumber(record.summary.totalRevenue)}원
+                            </div>
+                          </div>
+                          <div>
+                            <div className="text-slate-500">전체원가</div>
+                            <div className="mt-1 font-bold text-slate-900">
+                              {formatNumber(record.summary.totalCost)}원
+                            </div>
+                          </div>
+                          <div>
+                            <div className="text-slate-500">전체순이익</div>
+                            <div className="mt-1 font-bold text-slate-900">
+                              {formatNumber(record.summary.totalProfit)}원
+                            </div>
+                          </div>
+                        </div>
+
+                        {expanded ? (
+                          <div className="mt-4 overflow-hidden rounded-2xl border border-slate-200">
+                            <div className="overflow-x-auto">
+                              <table className="min-w-full text-sm">
+                                <thead className="bg-slate-50 text-slate-600">
+                                  <tr>
+                                    <th className="px-4 py-3 text-left">상품명</th>
+                                    <th className="px-4 py-3 text-left">SKU</th>
+                                    <th className="px-4 py-3 text-left">수량</th>
+                                    <th className="px-4 py-3 text-left">판매가</th>
+                                    <th className="px-4 py-3 text-left">개당총원가</th>
+                                    <th className="px-4 py-3 text-left">원가율</th>
+                                    <th className="px-4 py-3 text-left">마진율</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {record.items.map((item) => (
+                                    <tr key={item.id} className="border-t border-slate-100">
+                                      <td className="px-4 py-3">{item.name}</td>
+                                      <td className="px-4 py-3">{item.sku || "-"}</td>
+                                      <td className="px-4 py-3">{formatNumber(item.qty)}</td>
+                                      <td className="px-4 py-3">{formatNumber(item.salePrice)}원</td>
+                                      <td className="px-4 py-3">{formatNumber(item.totalCostPerUnit)}원</td>
+                                      <td className="px-4 py-3">{formatPercent(item.costRate)}</td>
+                                      <td className="px-4 py-3">{formatPercent(item.marginRate)}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+                        ) : null}
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
