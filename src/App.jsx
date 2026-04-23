@@ -18,9 +18,10 @@ import {
   Tag,
   CheckCircle2,
   Image as ImageIcon,
+  Database,
+  Bug,
 } from "lucide-react";
-
-const STORAGE_KEY = "cost-calculator-records-v1";
+import { supabase } from "./lib/supabase.js";
 
 function uid() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -233,7 +234,7 @@ function exportToCsv(records) {
         [
           record.bundleName,
           record.purchaseDate,
-          record.savedAt,
+          record.savedAt || "",
           item.name,
           item.sku || "",
           item.salesStatus || "미판매",
@@ -314,6 +315,83 @@ function exportToXlsx(records) {
   );
 }
 
+function mapDbBundleToUi(bundle) {
+  const items = (bundle.cost_bundle_items || []).map((item) => ({
+    id: item.id,
+    name: item.name ?? "",
+    sku: item.sku ?? "",
+    imageUrl: item.image_url ?? "",
+    qty: item.qty ?? 1,
+    buyUsd: item.buy_usd ?? 0,
+    buyCny: item.buy_cny ?? 0,
+    salePrice: item.sale_price ?? 0,
+    salesStatus: item.sales_status ?? "미판매",
+    restockStatus: item.restock_status ?? "보통",
+    unitBuyCostKrw: item.unit_buy_cost_krw ?? 0,
+    totalBuyCostKrw: item.total_buy_cost_krw ?? 0,
+    buyRatio: item.buy_ratio ?? 0,
+    overseasAllocatedTotal: item.overseas_allocated_total ?? 0,
+    overseasAllocatedPerUnit: item.overseas_allocated_per_unit ?? 0,
+    domesticPerUnit: item.domestic_per_unit ?? 0,
+    packagingPerUnit: item.packaging_per_unit ?? 0,
+    fixedAdPerUnit: item.fixed_ad_per_unit ?? 0,
+    smartStoreFeePerUnit: item.smartstore_fee_per_unit ?? 0,
+    adCostPerUnit: item.ad_cost_per_unit ?? 0,
+    simpleVatPerUnit: item.simple_vat_per_unit ?? 0,
+    totalCostPerUnit: item.total_cost_per_unit ?? 0,
+    totalCostAll: item.total_cost_all ?? 0,
+    revenueAll: item.revenue_all ?? 0,
+    profitPerUnit: item.profit_per_unit ?? 0,
+    profitAll: item.profit_all ?? 0,
+    costRate: item.cost_rate ?? 0,
+    marginRate: item.margin_rate ?? 0,
+    target30: item.target30 ?? 0,
+    target40: item.target40 ?? 0,
+  }));
+
+  return {
+    id: bundle.id,
+    bundleName: bundle.bundle_name ?? "",
+    purchaseDate: bundle.purchase_date ?? "",
+    sharedInput: {
+      usdRate: String(bundle.usd_rate ?? 0),
+      cnyRate: String(bundle.cny_rate ?? 0),
+      overseasShipping: String(bundle.overseas_shipping ?? 0),
+      domesticShipping: String(bundle.domestic_shipping ?? 0),
+      packagingCost: String(bundle.packaging_cost ?? 0),
+      adCostFixed: String(bundle.ad_cost_fixed ?? 0),
+      smartStoreFeeRate: String(bundle.smartstore_fee_rate ?? 0),
+      adCostRate: String(bundle.ad_cost_rate ?? 0),
+      simpleVatRate: String(bundle.simple_vat_rate ?? 0),
+    },
+    items,
+    sourceProducts: items.map((item) => ({
+      id: item.id || uid(),
+      name: item.name,
+      sku: item.sku,
+      imageUrl: item.imageUrl,
+      qty: String(item.qty ?? 1),
+      buyUsd: String(item.buyUsd ?? 0),
+      buyCny: String(item.buyCny ?? 0),
+      salePrice: String(item.salePrice ?? 0),
+      salesStatus: item.salesStatus ?? "미판매",
+      restockStatus: item.restockStatus ?? "보통",
+    })),
+    summary: {
+      totalQty: bundle.total_qty ?? 0,
+      totalBuyCost: bundle.total_buy_cost ?? 0,
+      totalRevenue: bundle.total_revenue ?? 0,
+      totalCost: bundle.total_cost ?? 0,
+      totalProfit: bundle.total_profit ?? 0,
+      costRate: bundle.cost_rate ?? 0,
+      marginRate: bundle.margin_rate ?? 0,
+    },
+    savedAt: bundle.created_at
+      ? new Date(bundle.created_at).toLocaleString("ko-KR")
+      : "",
+  };
+}
+
 function InputField({
   label,
   value,
@@ -334,7 +412,11 @@ function InputField({
           placeholder={placeholder}
           className="w-full bg-transparent text-base outline-none"
         />
-        {suffix && <span className="ml-3 whitespace-nowrap text-sm text-slate-500">{suffix}</span>}
+        {suffix && (
+          <span className="ml-3 whitespace-nowrap text-sm text-slate-500">
+            {suffix}
+          </span>
+        )}
       </div>
     </label>
   );
@@ -370,7 +452,9 @@ function SummaryCard({ title, value, sub, icon: Icon }) {
         <div className="text-sm font-medium text-slate-500">{title}</div>
         <Icon className="h-5 w-5 text-slate-400" />
       </div>
-      <div className="text-2xl font-bold tracking-tight text-slate-900">{value}</div>
+      <div className="text-2xl font-bold tracking-tight text-slate-900">
+        {value}
+      </div>
       {sub && <div className="mt-2 text-sm text-slate-500">{sub}</div>}
     </div>
   );
@@ -396,25 +480,11 @@ export default function App() {
   const [editingRecordId, setEditingRecordId] = useState(null);
   const [searchKeyword, setSearchKeyword] = useState("");
   const [isFetchingRates, setIsFetchingRates] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isLoadingRecords, setIsLoadingRecords] = useState(false);
   const [rateMessage, setRateMessage] = useState("");
+  const [dbMessage, setDbMessage] = useState("");
   const [expandedIds, setExpandedIds] = useState({});
-
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (!raw) return;
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) {
-        setSavedRecords(parsed);
-      }
-    } catch (error) {
-      console.error("저장 기록 불러오기 실패", error);
-    }
-  }, []);
-
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(savedRecords));
-  }, [savedRecords]);
 
   const sharedInput = useMemo(
     () => ({
@@ -441,7 +511,10 @@ export default function App() {
     ]
   );
 
-  const result = useMemo(() => calculateRows(products, sharedInput), [products, sharedInput]);
+  const result = useMemo(
+    () => calculateRows(products, sharedInput),
+    [products, sharedInput]
+  );
 
   const filteredRecords = useMemo(() => {
     const keyword = searchKeyword.trim().toLowerCase();
@@ -451,7 +524,11 @@ export default function App() {
       const target = [
         record.bundleName,
         record.purchaseDate,
-        ...(record.items || []).flatMap((item) => [item.name, item.sku, item.imageUrl]),
+        ...(record.items || []).flatMap((item) => [
+          item.name,
+          item.sku,
+          item.imageUrl,
+        ]),
       ]
         .join(" ")
         .toLowerCase();
@@ -459,6 +536,41 @@ export default function App() {
       return target.includes(keyword);
     });
   }, [savedRecords, searchKeyword]);
+
+  const loadRecords = async () => {
+    try {
+      setIsLoadingRecords(true);
+      setDbMessage("");
+
+      const { data, error } = await supabase
+        .from("cost_bundles")
+        .select(
+          `
+          *,
+          cost_bundle_items (*)
+        `
+        )
+        .order("created_at", { ascending: false });
+
+      if (error) throw error;
+
+      const mapped = (data || []).map(mapDbBundleToUi);
+      setSavedRecords(mapped);
+    } catch (error) {
+      console.error("DB 조회 오류:", error);
+      console.error("message:", error?.message);
+      console.error("details:", error?.details);
+      console.error("hint:", error?.hint);
+      console.error("code:", error?.code);
+      setDbMessage(error.message || "DB 조회 중 오류가 발생했습니다.");
+    } finally {
+      setIsLoadingRecords(false);
+    }
+  };
+
+  useEffect(() => {
+    loadRecords();
+  }, []);
 
   const fetchRates = async () => {
     try {
@@ -505,10 +617,13 @@ export default function App() {
     setSimpleVatRate("15");
     setProducts(makeSampleProducts());
     setEditingRecordId(null);
+    setDbMessage("");
   };
 
   const updateProduct = (id, key, value) => {
-    setProducts((prev) => prev.map((item) => (item.id === id ? { ...item, [key]: value } : item)));
+    setProducts((prev) =>
+      prev.map((item) => (item.id === id ? { ...item, [key]: value } : item))
+    );
   };
 
   const addProduct = () => {
@@ -516,31 +631,198 @@ export default function App() {
   };
 
   const removeProduct = (id) => {
-    setProducts((prev) => (prev.length <= 1 ? prev : prev.filter((item) => item.id !== id)));
+    setProducts((prev) =>
+      prev.length <= 1 ? prev : prev.filter((item) => item.id !== id)
+    );
   };
 
-  const saveRecord = () => {
-    const payload = {
-      id: editingRecordId || uid(),
-      bundleName: bundleName.trim() || "이름 없는 묶음",
-      purchaseDate,
-      sharedInput,
-      items: result.rows,
-      summary: result.summary,
-      sourceProducts: products,
-      savedAt: new Date().toLocaleString("ko-KR"),
-    };
+  const buildBundlePayload = () => ({
+    bundle_name: bundleName.trim() || "이름 없는 묶음",
+    purchase_date: purchaseDate || null,
+    usd_rate: toNumber(usdRate),
+    cny_rate: toNumber(cnyRate),
+    overseas_shipping: toNumber(overseasShipping),
+    domestic_shipping: toNumber(domesticShipping),
+    packaging_cost: toNumber(packagingCost),
+    ad_cost_fixed: toNumber(adCostFixed),
+    smartstore_fee_rate: toNumber(smartStoreFeeRate),
+    ad_cost_rate: toNumber(adCostRate),
+    simple_vat_rate: toNumber(simpleVatRate),
+    total_qty: Math.round(toNumber(result.summary.totalQty)),
+    total_buy_cost: toNumber(result.summary.totalBuyCost),
+    total_revenue: toNumber(result.summary.totalRevenue),
+    total_cost: toNumber(result.summary.totalCost),
+    total_profit: toNumber(result.summary.totalProfit),
+    cost_rate: toNumber(result.summary.costRate),
+    margin_rate: toNumber(result.summary.marginRate),
+  });
 
-    if (editingRecordId) {
-      setSavedRecords((prev) =>
-        prev.map((record) => (record.id === editingRecordId ? payload : record))
-      );
-    } else {
-      setSavedRecords((prev) => [payload, ...prev]);
+  const buildItemPayloads = (bundleId) =>
+    result.rows.map((row) => ({
+      bundle_id: bundleId,
+      name: row.name || "",
+      sku: row.sku || "",
+      image_url: row.imageUrl || "",
+      qty: Math.round(toNumber(row.qty)),
+      buy_usd: toNumber(row.buyUsd),
+      buy_cny: toNumber(row.buyCny),
+      sale_price: toNumber(row.salePrice),
+      sales_status: row.salesStatus || "미판매",
+      restock_status: row.restockStatus || "보통",
+      unit_buy_cost_krw: toNumber(row.unitBuyCostKrw),
+      total_buy_cost_krw: toNumber(row.totalBuyCostKrw),
+      buy_ratio: toNumber(row.buyRatio),
+      overseas_allocated_total: toNumber(row.overseasAllocatedTotal),
+      overseas_allocated_per_unit: toNumber(row.overseasAllocatedPerUnit),
+      domestic_per_unit: toNumber(row.domesticPerUnit),
+      packaging_per_unit: toNumber(row.packagingPerUnit),
+      fixed_ad_per_unit: toNumber(row.fixedAdPerUnit),
+      smartstore_fee_per_unit: toNumber(row.smartStoreFeePerUnit),
+      ad_cost_per_unit: toNumber(row.adCostPerUnit),
+      simple_vat_per_unit: toNumber(row.simpleVatPerUnit),
+      total_cost_per_unit: toNumber(row.totalCostPerUnit),
+      total_cost_all: toNumber(row.totalCostAll),
+      revenue_all: toNumber(row.revenueAll),
+      profit_per_unit: toNumber(row.profitPerUnit),
+      profit_all: toNumber(row.profitAll),
+      cost_rate: toNumber(row.costRate),
+      margin_rate: toNumber(row.marginRate),
+      target30: toNumber(row.target30),
+      target40: toNumber(row.target40),
+    }));
+
+  const runDbConnectionTest = async () => {
+    try {
+      console.log("DB 연결 테스트 시작");
+      const { data, error } = await supabase
+        .from("cost_bundles")
+        .select("id, bundle_name")
+        .limit(1);
+
+      console.log("DB 연결 테스트 data:", data);
+      console.log("DB 연결 테스트 error:", error);
+
+      if (error) {
+        alert(`SELECT 실패: ${error.message}`);
+        return;
+      }
+
+      alert("SELECT 성공 - 테이블 접근 가능");
+    } catch (err) {
+      console.error("DB 연결 테스트 예외:", err);
+      alert(`예외 발생: ${err.message}`);
     }
+  };
 
-    setEditingRecordId(payload.id);
-    alert("저장되었습니다.");
+  const runDbInsertTest = async () => {
+    try {
+      console.log("DB INSERT 테스트 시작");
+
+      const payload = {
+        bundle_name: "테스트묶음",
+        purchase_date: today,
+        usd_rate: 1380,
+        cny_rate: 190,
+        overseas_shipping: 1000,
+        domestic_shipping: 1000,
+        packaging_cost: 1000,
+        ad_cost_fixed: 1000,
+        smartstore_fee_rate: 2,
+        ad_cost_rate: 3,
+        simple_vat_rate: 15,
+        total_qty: 1,
+        total_buy_cost: 1000,
+        total_revenue: 2000,
+        total_cost: 1500,
+        total_profit: 500,
+        cost_rate: 75,
+        margin_rate: 25,
+      };
+
+      console.log("insert payload:", payload);
+
+      const { data, error } = await supabase
+        .from("cost_bundles")
+        .insert(payload)
+        .select();
+
+      console.log("insert data:", data);
+      console.log("insert error:", error);
+
+      if (error) {
+        alert(`INSERT 실패: ${error.message}`);
+        return;
+      }
+
+      alert("INSERT 성공");
+      await loadRecords();
+    } catch (err) {
+      console.error("INSERT 예외:", err);
+      alert(`예외 발생: ${err.message}`);
+    }
+  };
+
+  const saveRecord = async () => {
+    try {
+      setIsSaving(true);
+      setDbMessage("");
+
+      const bundlePayload = buildBundlePayload();
+      console.log("bundlePayload:", bundlePayload);
+
+      let bundleId = editingRecordId;
+
+      if (editingRecordId) {
+        const { error: updateError } = await supabase
+          .from("cost_bundles")
+          .update(bundlePayload)
+          .eq("id", editingRecordId);
+
+        if (updateError) throw updateError;
+
+        const { error: deleteItemsError } = await supabase
+          .from("cost_bundle_items")
+          .delete()
+          .eq("bundle_id", editingRecordId);
+
+        if (deleteItemsError) throw deleteItemsError;
+      } else {
+        const { data: insertedBundle, error: insertBundleError } = await supabase
+          .from("cost_bundles")
+          .insert(bundlePayload)
+          .select("id")
+          .single();
+
+        if (insertBundleError) throw insertBundleError;
+        bundleId = insertedBundle.id;
+      }
+
+      const itemPayloads = buildItemPayloads(bundleId);
+      console.log("itemPayloads:", itemPayloads);
+
+      if (itemPayloads.length > 0) {
+        const { error: insertItemsError } = await supabase
+          .from("cost_bundle_items")
+          .insert(itemPayloads);
+
+        if (insertItemsError) throw insertItemsError;
+      }
+
+      setEditingRecordId(bundleId);
+      setDbMessage(editingRecordId ? "DB 수정 완료" : "DB 저장 완료");
+      await loadRecords();
+      alert(editingRecordId ? "수정되었습니다." : "저장되었습니다.");
+    } catch (error) {
+      console.error("DB 저장 오류 전체:", error);
+      console.error("message:", error?.message);
+      console.error("details:", error?.details);
+      console.error("hint:", error?.hint);
+      console.error("code:", error?.code);
+      setDbMessage(error.message || "DB 저장 중 오류가 발생했습니다.");
+      alert(error.message || "DB 저장 중 오류가 발생했습니다.");
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const editRecord = (id) => {
@@ -550,7 +832,6 @@ export default function App() {
     setEditingRecordId(record.id);
     setBundleName(record.bundleName || "");
     setPurchaseDate(record.purchaseDate || today);
-
     setUsdRate(record.sharedInput.usdRate || "0");
     setCnyRate(record.sharedInput.cnyRate || "0");
     setOverseasShipping(record.sharedInput.overseasShipping || "0");
@@ -560,25 +841,43 @@ export default function App() {
     setSmartStoreFeeRate(record.sharedInput.smartStoreFeeRate || "0");
     setAdCostRate(record.sharedInput.adCostRate || "0");
     setSimpleVatRate(record.sharedInput.simpleVatRate || "15");
-
     setProducts(
       (record.sourceProducts || []).map((item) => ({
         ...item,
         id: item.id || uid(),
       }))
     );
-
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
-  const deleteRecord = (id) => {
+  const deleteRecord = async (id) => {
     const ok = window.confirm("정말 삭제하시겠습니까?");
     if (!ok) return;
 
-    setSavedRecords((prev) => prev.filter((record) => record.id !== id));
+    try {
+      setDbMessage("");
 
-    if (editingRecordId === id) {
-      resetForm();
+      const { error } = await supabase
+        .from("cost_bundles")
+        .delete()
+        .eq("id", id);
+
+      if (error) throw error;
+
+      if (editingRecordId === id) {
+        resetForm();
+      }
+
+      setDbMessage("DB 삭제 완료");
+      await loadRecords();
+    } catch (error) {
+      console.error("DB 삭제 오류:", error);
+      console.error("message:", error?.message);
+      console.error("details:", error?.details);
+      console.error("hint:", error?.hint);
+      console.error("code:", error?.code);
+      setDbMessage(error.message || "DB 삭제 중 오류가 발생했습니다.");
+      alert(error.message || "DB 삭제 중 오류가 발생했습니다.");
     }
   };
 
@@ -598,7 +897,9 @@ export default function App() {
               <Archive className="h-4 w-4" />
               PWA 원가 계산 앱
             </div>
-            <h1 className="text-3xl font-bold tracking-tight">합배송 원가 계산 앱</h1>
+            <h1 className="text-3xl font-bold tracking-tight">
+              합배송 원가 계산 앱
+            </h1>
             <p className="mt-2 text-sm text-slate-200 md:text-base">
               환율, 국제배송비, 국내배송비, 포장비, 광고비, 스마트스토어 수수료를
               반영해서 상품별 원가율과 마진율을 계산하고 저장할 수 있습니다.
@@ -610,8 +911,24 @@ export default function App() {
               onClick={fetchRates}
               className="inline-flex items-center justify-center gap-2 rounded-2xl bg-emerald-500 px-4 py-3 text-sm font-medium text-white transition hover:bg-emerald-400"
             >
-              <RefreshCw className={`h-4 w-4 ${isFetchingRates ? "animate-spin" : ""}`} />
+              <RefreshCw
+                className={`h-4 w-4 ${isFetchingRates ? "animate-spin" : ""}`}
+              />
               {isFetchingRates ? "환율 불러오는 중" : "오늘 환율 반영"}
+            </button>
+            <button
+              onClick={runDbConnectionTest}
+              className="inline-flex items-center justify-center gap-2 rounded-2xl bg-sky-500 px-4 py-3 text-sm font-medium text-white transition hover:bg-sky-400"
+            >
+              <Database className="h-4 w-4" />
+              DB 연결 테스트
+            </button>
+            <button
+              onClick={runDbInsertTest}
+              className="inline-flex items-center justify-center gap-2 rounded-2xl bg-yellow-500 px-4 py-3 text-sm font-medium text-white transition hover:bg-yellow-400"
+            >
+              <Bug className="h-4 w-4" />
+              DB INSERT 테스트
             </button>
             <button
               onClick={() => exportToCsv(filteredRecords)}
@@ -638,8 +955,17 @@ export default function App() {
         </div>
 
         {rateMessage ? (
-          <div className="mb-6 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600 shadow-sm">
+          <div className="mb-4 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600 shadow-sm">
             {rateMessage}
+          </div>
+        ) : null}
+
+        {dbMessage ? (
+          <div className="mb-6 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600 shadow-sm">
+            <div className="flex items-center gap-2">
+              <Database className="h-4 w-4" />
+              {dbMessage}
+            </div>
           </div>
         ) : null}
 
@@ -828,10 +1154,15 @@ export default function App() {
               <div className="mt-5 flex flex-wrap gap-3">
                 <button
                   onClick={saveRecord}
-                  className="inline-flex items-center gap-2 rounded-2xl bg-slate-900 px-5 py-3 text-sm font-medium text-white transition hover:bg-slate-800"
+                  disabled={isSaving}
+                  className="inline-flex items-center gap-2 rounded-2xl bg-slate-900 px-5 py-3 text-sm font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   <Save className="h-4 w-4" />
-                  {editingRecordId ? "수정 저장" : "현재 묶음 저장"}
+                  {isSaving
+                    ? "DB 저장 중..."
+                    : editingRecordId
+                    ? "DB 수정 저장"
+                    : "DB에 현재 묶음 저장"}
                 </button>
               </div>
             </div>
@@ -925,9 +1256,19 @@ export default function App() {
             <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
               <div className="mb-5 flex flex-col gap-3">
                 <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                  <h2 className="text-xl font-bold">저장된 기록</h2>
+                  <h2 className="text-xl font-bold">DB 저장 기록</h2>
 
                   <div className="flex flex-wrap gap-2">
+                    <button
+                      onClick={loadRecords}
+                      disabled={isLoadingRecords}
+                      className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 px-4 py-3 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      <RefreshCw
+                        className={`h-4 w-4 ${isLoadingRecords ? "animate-spin" : ""}`}
+                      />
+                      {isLoadingRecords ? "불러오는 중" : "DB 새로고침"}
+                    </button>
                     <button
                       onClick={() => exportToCsv(filteredRecords)}
                       className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 px-4 py-3 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
@@ -958,7 +1299,11 @@ export default function App() {
               </div>
 
               <div className="space-y-4">
-                {filteredRecords.length === 0 ? (
+                {isLoadingRecords ? (
+                  <div className="rounded-2xl border border-dashed border-slate-200 px-4 py-10 text-center text-sm text-slate-400">
+                    DB 기록을 불러오는 중입니다.
+                  </div>
+                ) : filteredRecords.length === 0 ? (
                   <div className="rounded-2xl border border-dashed border-slate-200 px-4 py-10 text-center text-sm text-slate-400">
                     저장된 기록이 없습니다.
                   </div>
